@@ -272,9 +272,16 @@ Your response:""",
     except Exception as e:
         speak("LLM error", gui)
 
+HISTORY_FILE = os.path.join(BASE_DIR, "command_history.txt")
+
+def log_command(cmd, status="executed"):
+    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+        f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {cmd} -> {status}\n")
+
 def handle_cmd(cmd, gui):
     cmd = cmd.lower().strip()
     gui.set_status("processing", f"You said: {cmd}")
+    log_command(cmd)
 
     if "time" in cmd:
         t = datetime.datetime.now().strftime("%I:%M %p")
