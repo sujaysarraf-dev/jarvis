@@ -349,6 +349,35 @@ def handle_cmd(cmd, gui):
         speak("Theme changed", gui)
         return
 
+    type_match = re.search(r"^type\s+(.+)", cmd)
+    if type_match and "pomodoro" not in cmd:
+        text = type_match.group(1).strip()
+        try:
+            import keyboard
+            keyboard.write(text + "\n")
+        except:
+            import pyperclip
+            pyperclip.copy(text)
+        speak("Typed", gui)
+        return
+
+    if "pomodoro" in cmd or "focus" in cmd or "start pomodoro" in cmd:
+        dur = 25
+        pomo_match = re.search(r"(\d+)\s*min", cmd)
+        if pomo_match:
+            dur = int(pomo_match.group(1))
+        speak(f"Pomodoro started for {dur} minutes", gui)
+        gui.text_label.config(text=f"Focus for {dur} min...")
+        def pomo():
+            time.sleep(dur * 60)
+            for _ in range(3):
+                speak("Time for a break!", gui)
+                time.sleep(2)
+            speak("Break for 5 minutes", gui)
+            gui.text_label.config(text="Break time!")
+        threading.Thread(target=pomo, daemon=True).start()
+        return
+
     if "wifi" in cmd or "bluetooth" in cmd:
         if "on" in cmd:
             if "wifi" in cmd:
