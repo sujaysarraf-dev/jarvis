@@ -6,10 +6,11 @@ from tkinter import font
 import os
 import sys
 import datetime
-import requests
-import json
 import re
 import time
+import requests
+import json
+from rapidfuzz import fuzz, process
 
 WAKE_WORD = "jarvis"
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -17,34 +18,43 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SS_FOLDER = os.path.join(BASE_DIR, "ss")
 os.makedirs(SS_FOLDER, exist_ok=True)
 
-APPS = {
-    "calculator": "calc", "notepad": "notepad", "browser": "start chrome",
-    "chrome": "start chrome", "edge": "start msedge", "firefox": "start firefox",
-    "explorer": "explorer", "terminal": "start cmd", "cmd": "start cmd",
-    "paint": "start mspaint", "word": "start winword", "excel": "start excel",
-    "powerpoint": "start powerpnt", "spotify": "start spotify", "discord": "start discord",
-    "whatsapp": "start whatsapp", "telegram": "start telegram", "vscode": "start code",
-    "youtube": "start https://youtube.com", "maps": "start https://google.com/maps",
-    "github": "start https://github.com", "gmail": "start https://gmail.com",
+COMMAND_MAP = {
+    "calculator": "calc", "calc": "calc",
+    "notepad": "notepad", "notes": "notepad",
+    "browser": "start chrome", "web browser": "start chrome", "internet": "start chrome", "chrome": "start chrome",
+    "edge": "start msedge", "microsoft edge": "start msedge",
+    "firefox": "start firefox", "mozilla": "start firefox",
+    "terminal": "start cmd", "command prompt": "start cmd", "cmd": "start cmd", "console": "start cmd", "powershell": "start powershell",
+    "paint": "start mspaint", "ms paint": "start mspaint", "drawing": "start mspaint",
+    "word": "start winword", "microsoft word": "start winword", "ms word": "start winword",
+    "excel": "start excel", "microsoft excel": "start excel", "ms excel": "start excel",
+    "powerpoint": "start powerpnt", "microsoft powerpoint": "start powerpnt", "slides": "start powerpnt",
+    "spotify": "start spotify", "music player": "start spotify",
+    "discord": "start discord", "vscode": "start code", "vs code": "start code", "visual studio code": "start code",
+    "whatsapp": "start whatsapp", "telegram": "start telegram",
+    "youtube": "start https://youtube.com",
+    "maps": "start https://google.com/maps", "google maps": "start https://google.com/maps",
+    "github": "start https://github.com", "gmail": "start https://gmail.com", "mail": "start https://gmail.com",
     "settings": "start ms-settings:", "control panel": "control",
     "task manager": "taskmgr", "taskmgr": "taskmgr",
-    "file explorer": "explorer", "notepad++": "start notepad++",
+    "file explorer": "explorer", "explorer": "explorer",
+    "notepad++": "start notepad++", "calculator app": "calc",
 }
 
-FAST = [
-    (r"open ss\b|show ss|show screenshot|open screenshots", lambda: os.startfile(SS_FOLDER)),
-    (r"show desktop", lambda: subprocess.Popen(['powershell', '-Command', '(New-Object -ComObject Shell.Application).ToggleDesktop()'])),
-    (r"(lock|lock pc|lock computer)", lambda: subprocess.Popen("rundll32.exe user32.dll,LockWorkStation")),
-    (r"restart|reboot", lambda: subprocess.Popen("shutdown /r /t 0")),
-    (r"shutdown|turn off", lambda: subprocess.Popen("shutdown /s /t 0")),
-    (r"sleep|hibernate", lambda: subprocess.Popen("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")),
-    (r"volume up|louder|increase volume", lambda: subprocess.run('for /l %i in (1,1,10) do @start /b nircmd volup 65536', shell=True)),
-    (r"volume down|quieter|lower|decrease volume", lambda: subprocess.run('for /l %i in (1,1,10) do @start /b nircmd voldown 65536', shell=True)),
-    (r"mute|silence", lambda: subprocess.run("nircmd mutesysvolume 2", shell=True)),
-    (r"unmute", lambda: subprocess.run("nircmd mutesysvolume 0", shell=True)),
-    (r"open downloads", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Downloads'])),
-    (r"open documents", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Documents'])),
-    (r"open desktop", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Desktop'])),
+KNOWN_ACTIONS = [
+    ("show desktop", lambda: subprocess.Popen(['powershell', '-Command', '(New-Object -ComObject Shell.Application).ToggleDesktop()']), ["show desktop", "minimize all windows", "show windows"]),
+    ("lock", lambda: subprocess.Popen("rundll32.exe user32.dll,LockWorkStation"), ["lock", "lock pc", "lock computer", "lock screen"]),
+    ("restart", lambda: subprocess.Popen("shutdown /r /t 0"), ["restart", "reboot", "restart pc", "restart computer"]),
+    ("shutdown", lambda: subprocess.Popen("shutdown /s /t 0"), ["shutdown", "turn off", "power off", "shut down"]),
+    ("sleep", lambda: subprocess.Popen("rundll32.exe powrprof.dll,SetSuspendState 0,1,0"), ["sleep", "hibernate", "go to sleep"]),
+    ("volume up", lambda: subprocess.run('for /l %i in (1,1,10) do @start /b nircmd volup 65536', shell=True), ["volume up", "louder", "increase volume", "turn up volume", "increase speaker volume"]),
+    ("volume down", lambda: subprocess.run('for /l %i in (1,1,10) do @start /b nircmd voldown 65536', shell=True), ["volume down", "quieter", "lower volume", "decrease volume", "turn down volume"]),
+    ("unmute", lambda: subprocess.run("nircmd mutesysvolume 0", shell=True), ["unmute", "unmute volume", "unsilence", "unmute sound"]),
+    ("mute", lambda: subprocess.run("nircmd mutesysvolume 2", shell=True), ["mute", "mute volume", "silence", "silent", "mute sound"]),
+    ("open downloads", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Downloads']), ["open downloads folder", "show downloads folder", "my downloads"]),
+    ("open documents", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Documents']), ["open documents folder", "show documents folder", "my documents"]),
+    ("open desktop", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Desktop']), ["open desktop folder", "show desktop folder"]),
+    ("open screenshots", lambda: os.startfile(SS_FOLDER), ["open screenshots folder", "show screenshots folder"]),
 ]
 
 class JarvisGUI:
@@ -117,17 +127,17 @@ class JarvisGUI:
         iy = self.y - 30
         self.info_win.geometry(f"280x150+{ix}+{iy}")
 
-        c = tk.Canvas(self.info_win, width=280, height=150, bg="#1a1a2e", highlightthickness=0)
-        c.pack()
-        c.create_rectangle(0, 0, 280, 150, fill="#1a1a2e", outline="#00d4ff", width=1)
+        self.info_canvas = tk.Canvas(self.info_win, width=280, height=150, bg="#1a1a2e", highlightthickness=0)
+        self.info_canvas.pack()
+        self.info_canvas.create_rectangle(0, 0, 280, 150, fill="#1a1a2e", outline="#00d4ff", width=1)
 
-        self.info_label = c.create_text(140, 30, text="Say 'Jarvis' to activate", fill="#ffaa00", font=font.Font(size=11))
-        self.info_text = c.create_text(140, 65, text="", fill="white", width=260, font=font.Font(size=10))
-        self.info_small = c.create_text(140, 120, text="Double-click to hide", fill="#444", font=font.Font(size=8))
+        self.info_label = self.info_canvas.create_text(140, 30, text="Say 'Jarvis' to activate", fill="#ffaa00", font=font.Font(size=11))
+        self.info_text = self.info_canvas.create_text(140, 65, text="", fill="white", width=260, font=font.Font(size=10))
+        self.info_canvas.create_text(140, 120, text="Double-click to hide", fill="#444", font=font.Font(size=8))
         
         self.info_win.bind("<Double-Button-1>", lambda e: self.toggle_window())
 
-        self.check_startup(c)
+        self.check_startup(self.info_canvas)
 
     def check_startup(self, canvas=None):
         p = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'jarvis.bat')
@@ -180,10 +190,9 @@ class JarvisGUI:
         if self.info_win and self.info_win.winfo_exists():
             ti = {"idle":"Say 'Jarvis' to activate","wake":"Activated!","listening":"Listening...",
                   "processing":"Processing...","speaking":"Speaking...","success":"Done","error":"Error"}
-            self.info_win.children.get(self.info_win.winfo_children()[0]).itemconfig(self.info_label,
-                text=ti.get(status, ""), fill=colors.get(status, "#888888"))
-            self.info_win.children.get(self.info_win.winfo_children()[0]).itemconfig(self.info_text,
-                text=text if text else "")
+            if hasattr(self, 'info_canvas'):
+                self.info_canvas.itemconfig(self.info_label, text=ti.get(status, ""), fill=colors.get(status, "#888888"))
+                self.info_canvas.itemconfig(self.info_text, text=text if text else "")
 
     def pulse_animation(self):
         if self.last_status in ("processing", "listening"):
@@ -195,10 +204,12 @@ class JarvisGUI:
         else:
             self.canvas.itemconfig(self.ring, width=0)
 
-    def activate(self):
+    def activate(self, has_cmd=False):
         self.awake = True
         self.set_status("wake")
-        speak("I'm listening", self)
+        if not has_cmd:
+            speak("I'm listening", self)
+            time.sleep(0.5)
 
     def deactivate(self):
         self.awake = False
@@ -220,7 +231,6 @@ def speak(text, gui):
     try:
         from gtts import gTTS
         import pygame
-        import time
         tts = gTTS(text=text, lang="en", tld="com", slow=False)
         tts.save("jarvis_speech.mp3")
         pygame.mixer.init()
@@ -242,35 +252,89 @@ def speak(text, gui):
     if gui.awake:
         gui.set_status("listening")
 
+OLLAMA_MODEL = "llama3.2:1b"
+
 def gen_llm(cmd, gui):
     try:
         r = requests.post(OLLAMA_URL, json={
-            "model": "phi4",
-            "prompt": f"""You are JARVIS voice assistant. User said: "{cmd}"
-If it's a question or calculation, reply with just the ANSWER (short, 1 sentence).
-If it's a command to do something, reply with the Windows CMD command to execute (start with CMD:).
-Otherwise reply "NONE".
-
-Example 1: "what is 2+2" -> 4
-Example 2: "open calculator" -> CMD:calc
-Example 3: "what's the weather" -> NONE
-Example 4: "play music" -> CMD:start spotify
-
-Your response:""",
+            "model": OLLAMA_MODEL,
+            "prompt": f"Name the app/program for: {cmd}. Reply 1 word only.",
             "stream": False,
-            "options": {"num_ctx": 512, "num_predict": 50, "temperature": 0}
-        }, timeout=25)
-        res = r.json().get("response","").strip()
-        if not res or res == "NONE":
-            speak("I don't know how to do that", gui)
-        elif res.startswith("CMD:"):
-            subprocess.run(res[4:].strip(), shell=True, capture_output=True)
-            speak("Done", gui)
+            "options": {"num_ctx": 64, "num_predict": 5, "temperature": 0}
+        }, timeout=15)
+        res = r.json().get("response", "").strip().lower().strip("`'\".,!?:; ")
+        log_command(f"LLM: [{cmd}] -> [{res}]")
+        if res and len(res) > 1 and "sorry" not in res:
+            matched = process.extractOne(res, list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=70)
+            if matched:
+                subprocess.Popen(COMMAND_MAP[matched[0]], shell=True)
+                speak(f"Opening {matched[0]}", gui)
+            else:
+                try:
+                    subprocess.Popen(f"start {res}", shell=True)
+                    speak(f"Opening {res}", gui)
+                except:
+                    speak(f"Trying {res}", gui)
         else:
-            gui.set_status("success", res)
-            speak(res, gui)
-    except Exception as e:
-        speak("LLM error", gui)
+            speak("I don't know", gui)
+    except:
+        speak("I don't know", gui)
+
+def fuzzy_find(cmd, gui):
+    cmd_lower = cmd.lower().strip()
+    log_command(f"fuzzy_find input: [{cmd_lower}]")
+    
+    PREFIXES = ("open ", "launch ", "start ", "run ", "switch to ")
+    SCORE = 50
+    
+    all_exact = []
+    for name, action, phrases in KNOWN_ACTIONS:
+        for phrase in phrases:
+            all_exact.append((len(phrase), phrase, name, action))
+    all_exact.sort(key=lambda x: -x[0])
+    for length, phrase, name, action in all_exact:
+        if phrase in cmd_lower:
+            log_command(f"  exact match: [{name}] via [{phrase}]")
+            try: action()
+            except: pass
+            speak("Done", gui)
+            return True
+    
+    for name, action, phrases in KNOWN_ACTIONS:
+        result = process.extractOne(cmd_lower, phrases, scorer=fuzz.token_set_ratio, score_cutoff=SCORE)
+        if result:
+            log_command(f"  fuzzy action: [{name}] score={result[1]} phrase=[{result[0]}]")
+            try: action()
+            except: pass
+            speak("Done", gui)
+            return True
+    
+    for prefix in PREFIXES:
+        if cmd_lower.startswith(prefix):
+            remainder = cmd_lower[len(prefix):].strip()
+            log_command(f"  prefix match: [{prefix}] remainder=[{remainder}]")
+            if remainder in COMMAND_MAP:
+                subprocess.Popen(COMMAND_MAP[remainder], shell=True)
+                speak(f"Opening {remainder}", gui)
+                return True
+            result = process.extractOne(remainder, list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=SCORE)
+            if result:
+                log_command(f"  fuzzy app: [{result[0]}] score={result[1]}")
+                matched = result[0]
+                subprocess.Popen(COMMAND_MAP[matched], shell=True)
+                speak(f"Opening {matched}", gui)
+                return True
+    
+    result = process.extractOne(cmd_lower, list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=SCORE)
+    if result:
+        log_command(f"  fuzzy whole-cmd: [{result[0]}] score={result[1]}")
+        matched = result[0]
+        subprocess.Popen(COMMAND_MAP[matched], shell=True)
+        speak(f"Opening {matched}", gui)
+        return True
+    
+    log_command(f"  NO MATCH for: [{cmd_lower}]")
+    return False
 
 HISTORY_FILE = os.path.join(BASE_DIR, "command_history.txt")
 
@@ -367,14 +431,12 @@ def handle_cmd(cmd, gui):
         if pomo_match:
             dur = int(pomo_match.group(1))
         speak(f"Pomodoro started for {dur} minutes", gui)
-        gui.text_label.config(text=f"Focus for {dur} min...")
         def pomo():
             time.sleep(dur * 60)
             for _ in range(3):
                 speak("Time for a break!", gui)
                 time.sleep(2)
             speak("Break for 5 minutes", gui)
-            gui.text_label.config(text="Break time!")
         threading.Thread(target=pomo, daemon=True).start()
         return
 
@@ -392,21 +454,6 @@ def handle_cmd(cmd, gui):
                 subprocess.run('powershell -Command "(Get-PnpDevice -Class Bluetooth).FriendlyName | Disable-PnpDevice"', shell=True, capture_output=True)
             speak("Disabled", gui)
         return
-
-    for pattern, action in FAST:
-        if re.search(pattern, cmd):
-            try:
-                action()
-                speak("Done", gui)
-            except Exception as e:
-                speak("Failed", gui)
-            return
-
-    for name, run_cmd in APPS.items():
-        if f"open {name}" in cmd or name in cmd.split():
-            subprocess.Popen(run_cmd, shell=True)
-            speak(f"Opening {name}", gui)
-            return
 
     play_match = re.search(r"play\s+(.+)", cmd)
     if play_match and "open" not in cmd:
@@ -442,7 +489,8 @@ def handle_cmd(cmd, gui):
             speak("Screenshot failed", gui)
         return
 
-    threading.Thread(target=gen_llm, args=(cmd, gui), daemon=True).start()
+    if not fuzzy_find(cmd, gui):
+        threading.Thread(target=gen_llm, args=(cmd, gui), daemon=True).start()
 
 def listen_for_wake():
     r = sr.Recognizer()
@@ -452,7 +500,9 @@ def listen_for_wake():
             audio = r.listen(src, timeout=3, phrase_time_limit=3)
         text = r.recognize_google(audio)
         if text and WAKE_WORD in text.lower():
-            return True
+            idx = text.lower().index(WAKE_WORD) + len(WAKE_WORD)
+            after = text[idx:].strip()
+            return after if after else True
     except:
         pass
     return False
@@ -472,12 +522,14 @@ def listen_for_cmd(gui):
 STARTUP_FILE = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'jarvis.bat')
 
 def main_loop(gui):
-    import time
     time.sleep(1)
     while True:
         if not gui.awake:
-            if listen_for_wake():
-                gui.activate()
+            result = listen_for_wake()
+            if result:
+                gui.activate(has_cmd=isinstance(result, str))
+            if isinstance(result, str):
+                handle_cmd(result, gui)
         else:
             cmd = listen_for_cmd(gui)
             if cmd:

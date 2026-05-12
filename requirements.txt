@@ -1,8 +1,8 @@
 speechrecognition
 pyttsx3
-requests
 pillow
 pygame
 gtts
 psutil
 pyperclip
+rapidfuzz
