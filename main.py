@@ -42,7 +42,7 @@ COMMAND_MAP = {
 }
 
 KNOWN_ACTIONS = [
-    ("show desktop", lambda: subprocess.Popen(['powershell', '-Command', '(New-Object -ComObject Shell.Application).ToggleDesktop()']), ["show desktop", "minimize all windows", "show windows"]),
+    ("show desktop", lambda: subprocess.Popen(['powershell', '-Command', '(New-Object -ComObject Shell.Application).ToggleDesktop()']), ["show desktop", "minimize all windows", "show windows", "close all windows"]),
     ("lock", lambda: subprocess.Popen("rundll32.exe user32.dll,LockWorkStation"), ["lock", "lock pc", "lock computer", "lock screen"]),
     ("restart", lambda: subprocess.Popen("shutdown /r /t 0"), ["restart", "reboot", "restart pc", "restart computer"]),
     ("shutdown", lambda: subprocess.Popen("shutdown /s /t 0"), ["shutdown", "turn off", "power off", "shut down"]),
@@ -125,25 +125,45 @@ class JarvisGUI:
         self.info_win.attributes("-topmost", True)
         ix = self.x + self.size + 10
         iy = self.y - 30
-        self.info_win.geometry(f"280x150+{ix}+{iy}")
+        self.info_win.geometry(f"280x210+{ix}+{iy}")
+        self.info_win.configure(bg="#1a1a2e")
 
-        self.info_canvas = tk.Canvas(self.info_win, width=280, height=150, bg="#1a1a2e", highlightthickness=0)
+        self.info_canvas = tk.Canvas(self.info_win, width=280, height=100, bg="#1a1a2e", highlightthickness=0)
         self.info_canvas.pack()
-        self.info_canvas.create_rectangle(0, 0, 280, 150, fill="#1a1a2e", outline="#00d4ff", width=1)
+        self.info_canvas.create_rectangle(0, 0, 280, 100, fill="#1a1a2e", outline="#00d4ff", width=1)
 
-        self.info_label = self.info_canvas.create_text(140, 30, text="Say 'Jarvis' to activate", fill="#ffaa00", font=font.Font(size=11))
-        self.info_text = self.info_canvas.create_text(140, 65, text="", fill="white", width=260, font=font.Font(size=10))
-        self.info_canvas.create_text(140, 120, text="Double-click to hide", fill="#444", font=font.Font(size=8))
-        
-        self.info_win.bind("<Double-Button-1>", lambda e: self.toggle_window())
+        self.info_label = self.info_canvas.create_text(140, 25, text="Say 'Jarvis' to activate", fill="#ffaa00", font=font.Font(size=11))
+        self.info_text = self.info_canvas.create_text(140, 55, text="", fill="white", width=260, font=font.Font(size=10))
+
+        self.entry_var = tk.StringVar()
+        self.entry = tk.Entry(self.info_win, textvariable=self.entry_var, bg="#16213e", fg="white",
+                              insertbackground="white", font=font.Font(size=10), relief=tk.FLAT)
+        self.entry.pack(fill=tk.X, padx=8, pady=(5, 0))
+        self.entry.bind("<Return>", self.submit_text)
+
+        btn_frame = tk.Frame(self.info_win, bg="#1a1a2e")
+        btn_frame.pack(fill=tk.X, padx=8, pady=4)
+        tk.Button(btn_frame, text="Send", command=self.submit_text, bg="#0f3460", fg="white",
+                  activebackground="#1a5276", activeforeground="white", relief=tk.FLAT, cursor="hand2").pack(side=tk.RIGHT)
+        tk.Label(btn_frame, text="Enter command:", bg="#1a1a2e", fg="#888", font=font.Font(size=8)).pack(side=tk.LEFT)
 
         self.check_startup(self.info_canvas)
+
+        self.info_win.bind("<Double-Button-1>", lambda e: self.toggle_window())
+        self.entry.focus()
+
+    def submit_text(self, event=None):
+        text = self.entry_var.get().strip()
+        if text:
+            self.entry_var.set("")
+            handle_cmd(text, self)
+            self.info_win.lift()
 
     def check_startup(self, canvas=None):
         p = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'jarvis.bat')
         if canvas:
             txt = "On startup ✓" if os.path.exists(p) else "Startup: off"
-            canvas.create_text(140, 140, text=txt, fill="#666", font=font.Font(size=7))
+            canvas.create_text(140, 85, text=txt, fill="#666", font=font.Font(size=7))
 
     def set_startup(self, enable):
         p = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'jarvis.bat')
@@ -285,7 +305,7 @@ def fuzzy_find(cmd, gui):
     log_command(f"fuzzy_find input: [{cmd_lower}]")
     
     PREFIXES = ("open ", "launch ", "start ", "run ", "switch to ")
-    SCORE = 50
+    SCORE = 75
     
     all_exact = []
     for name, action, phrases in KNOWN_ACTIONS:
@@ -300,15 +320,6 @@ def fuzzy_find(cmd, gui):
             speak("Done", gui)
             return True
     
-    for name, action, phrases in KNOWN_ACTIONS:
-        result = process.extractOne(cmd_lower, phrases, scorer=fuzz.token_set_ratio, score_cutoff=SCORE)
-        if result:
-            log_command(f"  fuzzy action: [{name}] score={result[1]} phrase=[{result[0]}]")
-            try: action()
-            except: pass
-            speak("Done", gui)
-            return True
-    
     for prefix in PREFIXES:
         if cmd_lower.startswith(prefix):
             remainder = cmd_lower[len(prefix):].strip()
@@ -317,20 +328,38 @@ def fuzzy_find(cmd, gui):
                 subprocess.Popen(COMMAND_MAP[remainder], shell=True)
                 speak(f"Opening {remainder}", gui)
                 return True
-            result = process.extractOne(remainder, list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=SCORE)
+            for key, val in COMMAND_MAP.items():
+                if key in remainder:
+                    subprocess.Popen(val, shell=True)
+                    speak(f"Opening {key}", gui)
+                    return True
+            result = process.extractOne(remainder, list(COMMAND_MAP.keys()), scorer=fuzz.token_sort_ratio, score_cutoff=SCORE)
             if result:
                 log_command(f"  fuzzy app: [{result[0]}] score={result[1]}")
-                matched = result[0]
-                subprocess.Popen(COMMAND_MAP[matched], shell=True)
-                speak(f"Opening {matched}", gui)
+                subprocess.Popen(COMMAND_MAP[result[0]], shell=True)
+                speak(f"Opening {result[0]}", gui)
                 return True
     
-    result = process.extractOne(cmd_lower, list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=SCORE)
+    for key, val in COMMAND_MAP.items():
+        if cmd_lower == key or cmd_lower.startswith(key + " ") or cmd_lower.endswith(" " + key) or (" " + key + " ") in cmd_lower:
+            subprocess.Popen(val, shell=True)
+            speak(f"Opening {key}", gui)
+            return True
+    
+    for name, action, phrases in KNOWN_ACTIONS:
+        result = process.extractOne(cmd_lower, phrases, scorer=fuzz.ratio, score_cutoff=85)
+        if result:
+            log_command(f"  fuzzy action: [{name}] score={result[1]} phrase=[{result[0]}]")
+            try: action()
+            except: pass
+            speak("Done", gui)
+            return True
+    
+    result = process.extractOne(cmd_lower, list(COMMAND_MAP.keys()), scorer=fuzz.token_sort_ratio, score_cutoff=SCORE)
     if result:
         log_command(f"  fuzzy whole-cmd: [{result[0]}] score={result[1]}")
-        matched = result[0]
-        subprocess.Popen(COMMAND_MAP[matched], shell=True)
-        speak(f"Opening {matched}", gui)
+        subprocess.Popen(COMMAND_MAP[result[0]], shell=True)
+        speak(f"Opening {result[0]}", gui)
         return True
     
     log_command(f"  NO MATCH for: [{cmd_lower}]")
@@ -462,10 +491,26 @@ def handle_cmd(cmd, gui):
             subprocess.Popen("start spotify", shell=True)
             speak("Opening Spotify", gui)
         else:
-            import urllib.parse
-            query = urllib.parse.quote(song)
-            subprocess.Popen(f"start https://music.youtube.com/search?q={query}", shell=True)
-            speak(f"Playing {song}", gui)
+            speak(f"Searching {song}", gui)
+            def play_song(song_name):
+                try:
+                    r = subprocess.run(
+                        ['yt-dlp', '--flat-playlist', '--dump-json', '--no-warnings',
+                         f'ytsearch1:{song_name}'],
+                        capture_output=True, text=True, timeout=15
+                    )
+                    if r.stdout.strip():
+                        import json
+                        data = json.loads(r.stdout.strip().split('\n')[0])
+                        vid = data.get('id', '')
+                        if vid:
+                            subprocess.Popen(f'start https://www.youtube.com/watch?v={vid}', shell=True)
+                            return
+                except:
+                    pass
+                import urllib.parse
+                subprocess.Popen(f"start https://music.youtube.com/search?q={urllib.parse.quote(song_name)}", shell=True)
+            threading.Thread(target=play_song, args=(song,), daemon=True).start()
         return
 
     note_match = re.search(r"(?:note this|take note|write note|save note|remember)\s+(.+)", cmd)

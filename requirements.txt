@@ -6,3 +6,4 @@ gtts
 psutil
 pyperclip
 rapidfuzz
+yt-dlp

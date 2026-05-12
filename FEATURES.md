@@ -54,7 +54,7 @@
 | Voice Command | Action |
 |---------------|--------|
 | "play music" | Opens Spotify |
-| "play [song name]" | Searches YouTube Music and plays |
+| "play [song name]" | Searches YouTube via yt-dlp and opens video directly |
 
 ## Quick Notes
 | Voice Command | Action |
@@ -126,28 +126,32 @@
 | "turn on bluetooth" | Enables Bluetooth |
 | "turn off bluetooth" | Disables Bluetooth |
 
-## AI (LLM Integration)
-| Voice Command | Action |
-|---------------|--------|
-| Any unrecognized command | Falls back to phi4 LLM for understanding |
-| Questions | LLM answers via text-to-speech |
-| Commands | LLM generates & executes PowerShell command |
+## LLM Fallback
+| Feature | Detail |
+|---------|--------|
+| Unrecognized commands | Falls back to llama3.2:1b via Ollama |
+| Runs in background thread | Doesn't block voice interaction |
+
+## Text Input
+- Double-click bubble to open info panel with text entry box
+- Type commands and press Enter to test without voice
+- Same command processing as voice input
 
 ## Auto-Start
 - Automatically adds itself to Windows Startup folder
 - Runs at boot without user intervention
 
-## History
-- All spoken commands saved to `command_history.txt`
-
 ## Tech Stack
 - `speech_recognition` — voice input (Google Speech API)
 - `gTTS + pygame` — text-to-speech output
-- `tkinter` — floating bubble GUI
-- `Ollama (phi4)` — local LLM for command understanding
+- `tkinter` — floating bubble GUI with text input
+- `rapidfuzz` — instant fuzzy command matching
+- `Ollama (llama3.2:1b)` — local LLM fallback for unrecognized commands
+- `yt-dlp` — YouTube search for music playback
 - `psutil` — system info
 - `pyperclip` — clipboard access
 - `PIL` — screenshots
 - Custom PowerShell calls for system controls
+
 ## Command History
 - All commands logged with timestamps to `command_history.txt`
