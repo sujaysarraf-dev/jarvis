@@ -45,6 +45,7 @@ def speak(text, gui, add_transcript=True):
     if not text:
         return
     with SPEAK_LOCK:
+        gui.last_spoken = text[:200]
         if add_transcript:
             gui.add_transcript("Jarvis", text[:200])
         gui.set_status("speaking", text[:100])

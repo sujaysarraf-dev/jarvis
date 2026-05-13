@@ -51,6 +51,7 @@ class JarvisGUI:
         self.last_status = "idle"
         self.transcript = []
         self.streaming_idx = None
+        self.last_spoken = ""
         self.context_menu = tk.Menu(self.root, tearoff=0, bg="#1a1a2e", fg="white", activebackground="#0f3460")
         self.context_menu.add_command(label="Shutdown Jarvis", command=self.close)
         self.context_menu.add_command(label="Hide", command=self.hide)

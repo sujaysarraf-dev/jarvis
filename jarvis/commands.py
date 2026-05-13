@@ -80,9 +80,17 @@ def fuzzy_find(cmd, gui):
 
 def handle_cmd(cmd, gui):
     cmd = cmd.lower().strip()
+    if not cmd:
+        return
     gui.add_transcript("You", cmd)
     gui.set_status("processing", f"You said: {cmd}")
     log_command(cmd)
+
+    if gui.last_spoken and len(cmd) > 5:
+        ratio = fuzz.ratio(cmd, gui.last_spoken[:80].lower())
+        if ratio > 70:
+            log_command(f"Echo guard: skipped (fuzz={ratio:.0f}%): [{cmd}] vs [{gui.last_spoken[:80]}]")
+            return
 
     if "time" in cmd:
         t = datetime.datetime.now().strftime("%I:%M %p")
@@ -92,15 +100,15 @@ def handle_cmd(cmd, gui):
         d = datetime.datetime.now().strftime("%A, %B %d, %Y")
         speak(f"Today is {d}", gui)
         return
-    if re.search(r"\bbye\s+jarvis\b", cmd):
+    if re.search(r"\b(?:bye\s+jarvis|exit\s+jarvis|goodbye)\b", cmd):
         speak("Goodbye", gui)
         gui.close()
         return
-    if re.search(r'\b(?:deactivate|go to sleep)\b', cmd):
+    if re.search(r'\b(?:deactivate|go to sleep|exit)\b', cmd):
         speak("Going to sleep", gui)
         gui.deactivate()
         return
-    if re.search(r'\b(?:stop|sleep|bye)\b', cmd) and not re.search(r'\b(?:stopwatch|stop the music|stop playing|stopwatch|stopped|stopping|storage|sleeping)\b', cmd):
+    if re.search(r'\b(?:stop|sleep|bye|quit)\b', cmd) and not re.search(r'\b(?:stopwatch|stop the music|stop playing|stopwatch|stopped|stopping|storage|sleeping)\b', cmd):
         speak("Going to sleep", gui)
         gui.deactivate()
         return

@@ -87,26 +87,26 @@ def _stream_chat(messages, gui, max_tokens=150, temperature=0.05, timeout=None):
         models.append(preferred)
     models.extend(m for m in OPENROUTER_FALLBACK_MODELS if m not in models)
     for model in models:
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 res, err = _try_fetch(model, messages, max_tokens, temperature, timeout, gui)
                 if err is None:
                     return res, None
                 log_command(f"LLM fail {model} attempt {attempt}: {err}")
                 if err == "rate_limit":
-                    time.sleep(1)
+                    time.sleep(2 * (attempt + 1))
                     continue
                 if err in ("timeout", "connection"):
-                    time.sleep(0.5)
+                    time.sleep(1)
                     continue
                 if err.startswith("HTTP 5"):
-                    time.sleep(1)
+                    time.sleep(2)
                     continue
                 break
             except Exception as e:
                 log_command(f"LLM error {model}: {e}")
                 break
-        time.sleep(0.5)
+        time.sleep(1)
     return None, "failed"
 
 def extract_memory(user_cmd, llm_resp, gui):
@@ -166,7 +166,17 @@ def gen_llm(cmd, gui):
 
         if err:
             log_command(f"LLM Error: {err} | cmd: {cmd[:50]}")
-            threading.Thread(target=speak, args=("Sorry, I couldn't get an answer right now. Please try again.", gui), daemon=True).start()
+            if err == "rate_limit":
+                msg = "I'm getting too many requests. Please wait a moment and try again."
+            elif err == "timeout":
+                msg = "I'm having trouble getting a response right now. Please try again."
+            elif err == "no_api_key":
+                msg = "Please set your OpenRouter API key in the .env file."
+            elif err == "failed":
+                msg = "My brain is having trouble connecting. You can try again or ask something simple."
+            else:
+                msg = "I couldn't get an answer right now. Please try again."
+            threading.Thread(target=speak, args=(msg, gui), daemon=True).start()
             return
 
         log_command(f"LLM: [{cmd}] -> [{res[:100]}]")
