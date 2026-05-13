@@ -6,6 +6,10 @@ gtts>=2.5.0
 rapidfuzz>=3.0.0
 requests>=2.31.0
 
+# Wake word detection (offline, local)
+openwakeword>=0.6.0
+pyaudio>=0.2.11
+
 # System utilities
 psutil>=5.9.0
 pyperclip>=1.8.2

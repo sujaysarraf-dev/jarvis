@@ -7,7 +7,7 @@ from tkinter import font
 import datetime
 import subprocess
 from jarvis.config import BASE_DIR, SS_FOLDER, STARTUP_FILE
-from jarvis.speech import speak, listen_for_wake, listen_for_cmd
+from jarvis.speech import speak, listen_for_wake, listen_for_cmd, WAKE_EVENT, is_oww_available, start_oww_listener, stop_oww_listener
 from jarvis.utils import log_command
 
 class JarvisGUI:
@@ -280,14 +280,24 @@ class JarvisGUI:
 def main_loop(gui):
     time.sleep(1)
     wake_timeout = 0
+    if is_oww_available():
+        start_oww_listener()
+        log_command("OpenWakeWord listener started")
     while gui.running:
         if not gui.awake:
-            result = listen_for_wake()
-            if result:
-                gui.activate(has_cmd=isinstance(result, str))
-            if isinstance(result, str):
-                from jarvis.commands import handle_cmd
-                handle_cmd(result, gui)
+            if is_oww_available():
+                if WAKE_EVENT.is_set():
+                    WAKE_EVENT.clear()
+                    stop_oww_listener()
+                    time.sleep(0.3)
+                    gui.activate(has_cmd=True)
+            else:
+                result = listen_for_wake()
+                if result:
+                    gui.activate(has_cmd=isinstance(result, str))
+                if isinstance(result, str):
+                    from jarvis.commands import handle_cmd
+                    handle_cmd(result, gui)
         else:
             cmd = listen_for_cmd(gui, timeout=2)
             if cmd:
@@ -299,26 +309,49 @@ def main_loop(gui):
                 wake_timeout += 1
                 if wake_timeout > 25:
                     gui.deactivate()
+                    if is_oww_available():
+                        start_oww_listener()
                 elif wake_timeout > 15:
                     gui.set_status("listening" if wake_timeout % 2 == 0 else "idle")
 
 def run_background_listener():
-    import speech_recognition as sr
-    from jarvis.config import WAKE_WORD
-    from jarvis.speech import _recognizer
+    from jarvis.speech import _HAVE_OWW, _OWW_MODEL, WAKE_EVENT
     log_command("Background listener started")
-    while True:
-        try:
-            with sr.Microphone() as src:
-                _recognizer.adjust_for_ambient_noise(src, duration=0.5)
-                audio = _recognizer.listen(src, timeout=5, phrase_time_limit=5)
-            text = _recognizer.recognize_google(audio).lower()
-            if WAKE_WORD in text:
-                log_command("Wake word detected in background, launching GUI")
-                subprocess.Popen(['pythonw', os.path.abspath(os.path.join(BASE_DIR, "main.py"))])
-                time.sleep(5)
-        except Exception:
-            time.sleep(1)
+    if _HAVE_OWW:
+        import pyaudio
+        import numpy as np
+        p = pyaudio.PyAudio()
+        stream = p.open(format=pyaudio.paInt16, channels=1, rate=16000,
+                        input=True, frames_per_buffer=1280)
+        stream.start_stream()
+        log_command("Background OWW listener active")
+        while True:
+            try:
+                chunk = stream.read(1280, exception_on_overflow=False)
+                audio = np.frombuffer(chunk, dtype=np.int16)
+                pred = _OWW_MODEL.predict(audio)
+                if pred.get("hey_jarvis", 0) > 0.5:
+                    log_command("Wake word detected in background, launching GUI")
+                    subprocess.Popen(['pythonw', os.path.abspath(os.path.join(BASE_DIR, "main.py"))])
+                    time.sleep(5)
+            except:
+                time.sleep(0.1)
+    else:
+        import speech_recognition as sr
+        from jarvis.config import WAKE_WORD
+        from jarvis.speech import _recognizer
+        while True:
+            try:
+                with sr.Microphone() as src:
+                    _recognizer.adjust_for_ambient_noise(src, duration=0.5)
+                    audio = _recognizer.listen(src, timeout=5, phrase_time_limit=5)
+                text = _recognizer.recognize_google(audio).lower()
+                if WAKE_WORD in text:
+                    log_command("Wake word detected in background, launching GUI")
+                    subprocess.Popen(['pythonw', os.path.abspath(os.path.join(BASE_DIR, "main.py"))])
+                    time.sleep(5)
+            except Exception:
+                time.sleep(1)
 
 def main():
     os.makedirs(SS_FOLDER, exist_ok=True)
