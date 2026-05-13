@@ -40,14 +40,21 @@ class JarvisGUI:
         self.canvas.tag_bind(self.bubble, "<B1-Motion>", self.do_drag)
         self.canvas.tag_bind(self.bubble, "<ButtonRelease-1>", self.stop_drag)
         self.canvas.tag_bind(self.bubble, "<Double-Button-1>", self.toggle_window)
+        self.canvas.tag_bind(self.bubble, "<Button-3>", self.show_context_menu)
         self.canvas.bind("<ButtonPress-1>", self.start_drag)
         self.canvas.bind("<B1-Motion>", self.do_drag)
         self.canvas.bind("<ButtonRelease-1>", self.stop_drag)
         self.canvas.bind("<Double-Button-1>", self.toggle_window)
+        self.canvas.bind("<Button-3>", self.show_context_menu)
 
         self.info_win = None
         self.last_status = "idle"
         self.transcript = []
+        self.streaming_idx = None
+        self.context_menu = tk.Menu(self.root, tearoff=0, bg="#1a1a2e", fg="white", activebackground="#0f3460")
+        self.context_menu.add_command(label="Shutdown Jarvis", command=self.close)
+        self.context_menu.add_command(label="Hide", command=self.hide)
+        self.hidden = False
 
         if not os.path.exists(STARTUP_FILE):
             self.set_startup(True)
@@ -153,6 +160,13 @@ class JarvisGUI:
         elif os.path.exists(STARTUP_FILE):
             os.remove(STARTUP_FILE)
 
+    def show_context_menu(self, event):
+        self.context_menu.tk_popup(event.x_root, event.y_root)
+
+    def hide(self):
+        self.root.withdraw()
+        self.hidden = True
+
     def start_drag(self, event):
         self.dragging = True
         self.drag_x = event.x_root - self.x
@@ -170,11 +184,26 @@ class JarvisGUI:
         self.dragging = False
 
     def add_transcript(self, role, text):
+        if role == "Jarvis" and self.streaming_idx is not None:
+            return
         self.transcript.append((role, text, datetime.datetime.now().strftime("%H:%M:%S")))
         if len(self.transcript) > 20:
             self.transcript = self.transcript[-20:]
         if self.info_win and self.info_win.winfo_exists() and hasattr(self, 'transcript_box'):
             self.root.after(0, self._refresh_transcript)
+
+    def update_streaming(self, token):
+        if self.streaming_idx is None:
+            self.transcript.append(("Jarvis", token, datetime.datetime.now().strftime("%H:%M:%S")))
+            self.streaming_idx = len(self.transcript) - 1
+        else:
+            role, old, ts = self.transcript[self.streaming_idx]
+            self.transcript[self.streaming_idx] = (role, old + token, ts)
+        if self.info_win and self.info_win.winfo_exists() and hasattr(self, 'transcript_box'):
+            self.root.after(0, self._refresh_transcript)
+
+    def end_streaming(self):
+        self.streaming_idx = None
 
     def _refresh_transcript(self):
         if hasattr(self, 'transcript_box'):
@@ -230,7 +259,7 @@ class JarvisGUI:
         self.awake = True
         self.set_status("wake")
         if not has_cmd:
-            speak("I'm listening", self)
+            threading.Thread(target=speak, args=("I'm listening", self), daemon=True).start()
 
     def deactivate(self):
         self.awake = False

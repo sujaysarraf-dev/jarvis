@@ -11,11 +11,10 @@ except:
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
 OPENROUTER_MODEL = "openrouter/free"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_TIMEOUT = 10
+OPENROUTER_TIMEOUT = 8
 OPENROUTER_FALLBACK_MODELS = [
     "openrouter/free",
     "gryphe/mythomax-l2-13b:free",
-    "microsoft/phi-3-medium-4k-instruct:free",
 ]
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

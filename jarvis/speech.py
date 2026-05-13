@@ -25,52 +25,49 @@ except:
 
 _recognizer = sr.Recognizer()
 
-_tts_engine = None
-
-def _get_tts():
-    global _tts_engine
-    if _tts_engine is None:
-        try:
-            import pyttsx3
-            _tts_engine = pyttsx3.init()
-            _tts_engine.setProperty("rate", 180)
-        except:
-            pass
-    return _tts_engine
-
-def speak(text, gui):
+def speak(text, gui, add_transcript=True):
     if not text:
         return
     with SPEAK_LOCK:
-        gui.add_transcript("Jarvis", text[:200])
+        if add_transcript:
+            gui.add_transcript("Jarvis", text[:200])
         gui.set_status("speaking", text[:100])
-        engine = _get_tts()
+        speech_file = os.path.join(BASE_DIR, "jarvis_speech.mp3")
         spoken = False
-        if engine:
+        if _HAVE_GTTS and _HAVE_PYGAME:
+            gtts_ok = [False]
+            def do_gtts():
+                try:
+                    tts = gTTS(text=text, lang="en", tld="com", slow=False)
+                    tts.save(speech_file)
+                    gtts_ok[0] = True
+                except:
+                    pass
+            t = threading.Thread(target=do_gtts, daemon=True)
+            t.start()
+            t.join(8)
+            if gtts_ok[0]:
+                try:
+                    pygame.mixer.music.load(speech_file)
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.1)
+                    pygame.mixer.music.unload()
+                    spoken = True
+                except:
+                    pass
+            if os.path.exists(speech_file):
+                try:
+                    os.remove(speech_file)
+                except:
+                    pass
+        if not spoken:
             try:
-                engine.say(text)
-                engine.runAndWait()
-                spoken = True
+                import win32com.client
+                sp = win32com.client.Dispatch("SAPI.SpVoice")
+                sp.Speak(text, 0)
             except:
                 pass
-        if not spoken and _HAVE_GTTS and _HAVE_PYGAME:
-            speech_file = os.path.join(BASE_DIR, "jarvis_speech.mp3")
-            try:
-                tts = gTTS(text=text, lang="en", tld="com", slow=False)
-                tts.save(speech_file)
-                pygame.mixer.music.load(speech_file)
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    time.sleep(0.1)
-                pygame.mixer.music.unload()
-            except:
-                pass
-            finally:
-                if os.path.exists(speech_file):
-                    try:
-                        os.remove(speech_file)
-                    except:
-                        pass
         if gui.awake:
             gui.set_status("listening")
 
