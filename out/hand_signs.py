@@ -77,6 +77,9 @@ CONNECTIONS = [(0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),(5,9),(9,10),
 def run():
     landmarker = get_landmarker()
     cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: No camera detected.")
+        return
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     print("Hand + Face Detector — ESC to quit")

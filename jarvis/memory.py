@@ -54,6 +54,21 @@ class MemoryStore:
             self.facts = []
         self.save()
 
+    def recall_all_formatted(self):
+        with self.lock:
+            if not self.facts:
+                return ""
+            cats = {}
+            for f in self.facts:
+                cat = f.get("category", "other")
+                cats.setdefault(cat, []).append(f["fact"])
+            lines = []
+            for cat in ["identity", "preference", "work", "other"]:
+                if cat in cats:
+                    for fact in cats[cat]:
+                        lines.append(f"- [{cat}] {fact}")
+            return "\n".join(lines)
+
     def recall(self, query=None, limit=10):
         with self.lock:
             if not self.facts:
@@ -79,7 +94,13 @@ class MemoryStore:
         with self.lock:
             if not self.facts:
                 return "I don't have any specific memories about you yet."
-            lines = [f"  {f['fact']}" for f in self.facts]
-        return "Here is what I remember about you:\n" + "\n".join(lines)
+            total = len(self.facts)
+            recent = sorted(self.facts, key=lambda x: x["timestamp"], reverse=True)
+            lines = [f"  {f['fact']}" for f in recent[:5]]
+            msg = "\n".join(lines)
+            extra = total - 5
+            if extra > 0:
+                msg += f"\n  ...and {extra} more."
+        return "Here is what I remember about you:\n" + msg
 
 memory = MemoryStore()

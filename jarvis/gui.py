@@ -128,7 +128,7 @@ class JarvisGUI:
         if text:
             self.entry_var.set("")
             from jarvis.commands import handle_cmd
-            handle_cmd(text, self)
+            threading.Thread(target=handle_cmd, args=(text, self), daemon=True).start()
             self.info_win.lift()
 
     def check_startup(self, canvas=None):
@@ -140,8 +140,16 @@ class JarvisGUI:
     def set_startup(self, enable):
         if enable:
             script_path = os.path.join(BASE_DIR, "main.py")
+            env_file = os.path.join(BASE_DIR, ".env")
             with open(STARTUP_FILE, 'w') as f:
-                f.write(f'@echo off\ncd /d "{BASE_DIR}"\nstart /b pythonw "{script_path}" --bg\n')
+                f.write(f'@echo off\ncd /d "{BASE_DIR}"\n')
+                if os.path.exists(env_file):
+                    with open(env_file) as ef:
+                        for line in ef:
+                            line = line.strip()
+                            if line and not line.startswith('#'):
+                                f.write(f'set {line}\n')
+                f.write(f'start /b pythonw "{script_path}" --bg\n')
         elif os.path.exists(STARTUP_FILE):
             os.remove(STARTUP_FILE)
 
@@ -253,27 +261,29 @@ def main_loop(gui):
                 handle_cmd(result, gui)
         else:
             cmd = listen_for_cmd(gui, timeout=2)
-            gui.set_status("listening")
             if cmd:
                 from jarvis.commands import handle_cmd
                 handle_cmd(cmd, gui)
                 wake_timeout = 0
+                gui.set_status("listening")
             else:
                 wake_timeout += 1
-                if wake_timeout > 30:
-                    gui.set_status("idle")
+                if wake_timeout > 25:
+                    gui.deactivate()
+                elif wake_timeout > 15:
+                    gui.set_status("listening" if wake_timeout % 2 == 0 else "idle")
 
 def run_background_listener():
     import speech_recognition as sr
     from jarvis.config import WAKE_WORD
+    from jarvis.speech import _recognizer
     log_command("Background listener started")
     while True:
         try:
-            r = sr.Recognizer()
             with sr.Microphone() as src:
-                r.adjust_for_ambient_noise(src, duration=0.5)
-                audio = r.listen(src, timeout=5, phrase_time_limit=5)
-            text = r.recognize_google(audio).lower()
+                _recognizer.adjust_for_ambient_noise(src, duration=0.5)
+                audio = _recognizer.listen(src, timeout=5, phrase_time_limit=5)
+            text = _recognizer.recognize_google(audio).lower()
             if WAKE_WORD in text:
                 log_command("Wake word detected in background, launching GUI")
                 subprocess.Popen(['pythonw', os.path.abspath(os.path.join(BASE_DIR, "main.py"))])

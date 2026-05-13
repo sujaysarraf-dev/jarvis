@@ -4,6 +4,20 @@ import datetime
 import subprocess
 from jarvis.config import CREATE_NO_WINDOW, HISTORY_FILE, BASE_DIR, FORBIDDEN_PS
 
+_MAX_LOG_LINES = 2000
+
+def _trim_log():
+    try:
+        if os.path.exists(HISTORY_FILE) and os.path.getsize(HISTORY_FILE) > 2 * 1024 * 1024:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                f.writelines(lines[-_MAX_LOG_LINES:])
+    except:
+        pass
+
+_trim_log()
+
 USELESS_PATTERNS = re.compile(
     r'(i\'?m\s+jarvis|i am jarvis|your.*assistant|how can i help|'
     r'how may i help|nice to meet|hello there|hi there|'
@@ -34,6 +48,14 @@ def log_command(cmd, status="executed"):
     try:
         with open(HISTORY_FILE, "a", encoding="utf-8") as f:
             f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {cmd} -> {status}\n")
+    except:
+        pass
+    try:
+        if os.path.getsize(HISTORY_FILE) > 2 * 1024 * 1024:
+            with open(HISTORY_FILE, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                f.writelines(lines[-_MAX_LOG_LINES:])
     except:
         pass
 
