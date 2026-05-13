@@ -7,3 +7,4 @@ jarvis.lock
 command_history.txt
 ss/
 user_memory.json
+.env

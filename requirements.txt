@@ -1,9 +1,23 @@
-speechrecognition
-pyttsx3
-pillow
-pygame
-gtts
-psutil
-pyperclip
-rapidfuzz
-yt-dlp
+# Core
+speechrecognition>=3.10.0
+pyttsx3>=2.90
+pygame>=2.5.0
+gtts>=2.5.0
+rapidfuzz>=3.0.0
+requests>=2.31.0
+
+# System utilities
+psutil>=5.9.0
+pyperclip>=1.8.2
+Pillow>=10.0.0
+
+# Optional - typing
+keyboard>=0.13.5
+
+# Optional - media playback
+yt-dlp>=2023.0.0
+
+# Optional - hand gesture detection
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+numpy>=1.24.0
