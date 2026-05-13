@@ -8,9 +8,24 @@ import sys
 import datetime
 import re
 import time
+import urllib.parse
 import requests
 import json
 from rapidfuzz import fuzz, process
+
+SPEAK_LOCK = threading.Lock()
+
+try:
+    import pygame
+    pygame.mixer.init()
+except:
+    pass
+
+try:
+    from gtts import gTTS
+    _HAVE_GTTS = True
+except:
+    _HAVE_GTTS = False
 
 WAKE_WORD = "jarvis"
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -47,10 +62,10 @@ KNOWN_ACTIONS = [
     ("restart", lambda: subprocess.Popen("shutdown /r /t 0"), ["restart", "reboot", "restart pc", "restart computer"]),
     ("shutdown", lambda: subprocess.Popen("shutdown /s /t 0"), ["shutdown", "turn off", "power off", "shut down"]),
     ("sleep", lambda: subprocess.Popen("rundll32.exe powrprof.dll,SetSuspendState 0,1,0"), ["sleep", "hibernate", "go to sleep"]),
-    ("volume up", lambda: subprocess.run('for /l %i in (1,1,10) do @start /b nircmd volup 65536', shell=True), ["volume up", "louder", "increase volume", "turn up volume", "increase speaker volume"]),
-    ("volume down", lambda: subprocess.run('for /l %i in (1,1,10) do @start /b nircmd voldown 65536', shell=True), ["volume down", "quieter", "lower volume", "decrease volume", "turn down volume"]),
-    ("unmute", lambda: subprocess.run("nircmd mutesysvolume 0", shell=True), ["unmute", "unmute volume", "unsilence", "unmute sound"]),
-    ("mute", lambda: subprocess.run("nircmd mutesysvolume 2", shell=True), ["mute", "mute volume", "silence", "silent", "mute sound"]),
+    ("volume up", lambda: subprocess.run('powershell -Command "$s=(New-Object -ComObject WScript.Shell);for($i=0;$i -lt 10;$i++){$s.SendKeys([char]175);Start-Sleep -Milliseconds 50}"', shell=True), ["volume up", "louder", "increase volume", "turn up volume", "increase speaker volume"]),
+    ("volume down", lambda: subprocess.run('powershell -Command "$s=(New-Object -ComObject WScript.Shell);for($i=0;$i -lt 10;$i++){$s.SendKeys([char]174);Start-Sleep -Milliseconds 50}"', shell=True), ["volume down", "quieter", "lower volume", "decrease volume", "turn down volume"]),
+    ("unmute", lambda: subprocess.run('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"', shell=True), ["unmute", "unmute volume", "unsilence", "unmute sound"]),
+    ("mute", lambda: subprocess.run('powershell -Command "(New-Object -ComObject WScript.Shell).SendKeys([char]176)"', shell=True), ["mute", "mute volume", "silence", "silent", "mute sound"]),
     ("open downloads", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Downloads']), ["open downloads folder", "show downloads folder", "my downloads"]),
     ("open documents", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Documents']), ["open documents folder", "show documents folder", "my documents"]),
     ("open desktop", lambda: subprocess.Popen(['explorer', os.environ.get('USERPROFILE','') + '\\Desktop']), ["open desktop folder", "show desktop folder"]),
@@ -64,7 +79,6 @@ class JarvisGUI:
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True, "-transparentcolor", "black")
         self.configure_window()
-        
         self.awake = False
         self.dragging = False
         self.drag_x = 0
@@ -97,6 +111,7 @@ class JarvisGUI:
 
         self.info_win = None
         self.last_status = "idle"
+        self.transcript = []
 
         if not os.path.exists(STARTUP_FILE):
             self.set_startup(True)
@@ -124,16 +139,16 @@ class JarvisGUI:
         self.info_win.overrideredirect(True)
         self.info_win.attributes("-topmost", True)
         ix = self.x + self.size + 10
-        iy = self.y - 30
-        self.info_win.geometry(f"280x210+{ix}+{iy}")
+        iy = self.y - 150
+        self.info_win.geometry(f"320x350+{ix}+{iy}")
         self.info_win.configure(bg="#1a1a2e")
 
-        self.info_canvas = tk.Canvas(self.info_win, width=280, height=100, bg="#1a1a2e", highlightthickness=0)
+        self.info_canvas = tk.Canvas(self.info_win, width=320, height=80, bg="#1a1a2e", highlightthickness=0)
         self.info_canvas.pack()
-        self.info_canvas.create_rectangle(0, 0, 280, 100, fill="#1a1a2e", outline="#00d4ff", width=1)
+        self.info_canvas.create_rectangle(0, 0, 320, 80, fill="#1a1a2e", outline="#00d4ff", width=1)
 
-        self.info_label = self.info_canvas.create_text(140, 25, text="Say 'Jarvis' to activate", fill="#ffaa00", font=font.Font(size=11))
-        self.info_text = self.info_canvas.create_text(140, 55, text="", fill="white", width=260, font=font.Font(size=10))
+        self.info_label = self.info_canvas.create_text(160, 20, text="Say 'Jarvis' to activate", fill="#ffaa00", font=font.Font(size=11))
+        self.info_text = self.info_canvas.create_text(160, 45, text="", fill="white", width=300, font=font.Font(size=10))
 
         self.entry_var = tk.StringVar()
         self.entry = tk.Entry(self.info_win, textvariable=self.entry_var, bg="#16213e", fg="white",
@@ -148,6 +163,26 @@ class JarvisGUI:
         tk.Label(btn_frame, text="Enter command:", bg="#1a1a2e", fg="#888", font=font.Font(size=8)).pack(side=tk.LEFT)
 
         self.check_startup(self.info_canvas)
+
+        transcript_frame = tk.Frame(self.info_win, bg="#0d1b2a")
+        transcript_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
+        tk.Label(transcript_frame, text="Transcript", bg="#0d1b2a", fg="#00d4ff",
+                 font=font.Font(size=8), anchor=tk.W).pack(fill=tk.X)
+
+        self.transcript_box = tk.Text(transcript_frame, height=8, bg="#0d1b2a", fg="#cccccc",
+                                       font=font.Font(size=9), relief=tk.FLAT, borderwidth=0,
+                                       highlightthickness=0, state=tk.DISABLED, wrap=tk.WORD)
+        self.transcript_box.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = tk.Scrollbar(self.transcript_box, command=self.transcript_box.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.transcript_box.config(yscrollcommand=scrollbar.set)
+
+        self.transcript_box.tag_config("you", foreground="#4fc3f7")
+        self.transcript_box.tag_config("jarvis", foreground="#81c784")
+        self.transcript_box.tag_config("time", foreground="#666666")
+
+        self._refresh_transcript()
 
         self.info_win.bind("<Double-Button-1>", lambda e: self.toggle_window())
         self.entry.focus()
@@ -168,8 +203,9 @@ class JarvisGUI:
     def set_startup(self, enable):
         p = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'jarvis.bat')
         if enable:
+            script_path = os.path.join(BASE_DIR, "main.py")
             with open(p, 'w') as f:
-                f.write(f'@echo off\nstart /b python "{os.path.abspath(sys.argv[0])}"\n')
+                f.write(f'@echo off\ncd /d "{BASE_DIR}"\nstart /b pythonw "{script_path}" --bg\n')
         elif os.path.exists(p):
             os.remove(p)
 
@@ -189,8 +225,30 @@ class JarvisGUI:
     def stop_drag(self, event):
         self.dragging = False
 
+    def add_transcript(self, role, text):
+        self.transcript.append((role, text, datetime.datetime.now().strftime("%H:%M")))
+        if len(self.transcript) > 20:
+            self.transcript = self.transcript[-20:]
+        if self.info_win and self.info_win.winfo_exists() and hasattr(self, 'transcript_box'):
+            self.root.after(0, self._refresh_transcript)
+
+    def _refresh_transcript(self):
+        if hasattr(self, 'transcript_box'):
+            self.transcript_box.config(state=tk.NORMAL)
+            self.transcript_box.delete("1.0", tk.END)
+            for role, text, t in self.transcript[-10:]:
+                tag = "you" if role == "You" else "jarvis"
+                self.transcript_box.insert(tk.END, f"[{t}] ", "time")
+                self.transcript_box.insert(tk.END, f"{role}: ", tag)
+                self.transcript_box.insert(tk.END, f"{text}\n", "")
+            self.transcript_box.config(state=tk.DISABLED)
+            self.transcript_box.see(tk.END)
+
     def set_status(self, status, text=""):
         self.last_status = status
+        self.root.after(0, self._update_gui, status, text)
+
+    def _update_gui(self, status, text=""):
         colors = {
             "idle":"#444444","wake":"#ffaa00","listening":"#00ff00",
             "processing":"#ffaa00","speaking":"#00d4ff","success":"#00ff00","error":"#ff4444"
@@ -235,7 +293,8 @@ class JarvisGUI:
         self.awake = False
         self.set_status("idle")
 
-    def on_close(self):
+    def close(self):
+        self.running = False
         self.root.quit()
 
     def update(self):
@@ -247,58 +306,280 @@ class JarvisGUI:
         self.root.mainloop()
 
 def speak(text, gui):
-    gui.set_status("speaking", text)
-    try:
-        from gtts import gTTS
-        import pygame
-        tts = gTTS(text=text, lang="en", tld="com", slow=False)
-        tts.save("jarvis_speech.mp3")
-        pygame.mixer.init()
-        pygame.mixer.music.load("jarvis_speech.mp3")
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            time.sleep(0.1)
-        pygame.mixer.quit()
-        if os.path.exists("jarvis_speech.mp3"):
-            os.remove("jarvis_speech.mp3")
-    except:
-        try:
-            import pyttsx3
-            engine = pyttsx3.init()
-            engine.say(text)
-            engine.runAndWait()
-        except:
-            pass
-    if gui.awake:
-        gui.set_status("listening")
+    with SPEAK_LOCK:
+        gui.add_transcript("Jarvis", text)
+        gui.set_status("speaking", text)
+        speech_file = os.path.join(BASE_DIR, "jarvis_speech.mp3")
+        spoken = False
+        if _HAVE_GTTS:
+            try:
+                tts = gTTS(text=text, lang="en", tld="com", slow=False)
+                tts.save(speech_file)
+                pygame.mixer.music.load(speech_file)
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    time.sleep(0.1)
+                pygame.mixer.music.unload()
+                spoken = True
+            except:
+                pass
+            finally:
+                if os.path.exists(speech_file):
+                    try: os.remove(speech_file)
+                    except: pass
+        if not spoken:
+            try:
+                import pyttsx3
+                engine = pyttsx3.init()
+                engine.say(text)
+                engine.runAndWait()
+            except:
+                pass
+        
+        if gui.awake:
+            gui.set_status("listening")
 
 OLLAMA_MODEL = "llama3.2:1b"
 
+MEMORY_FILE = os.path.join(BASE_DIR, "user_memory.json")
+
+class MemoryStore:
+    def __init__(self):
+        self.facts = []
+        self.lock = threading.Lock()
+        self.load()
+
+    def load(self):
+        with self.lock:
+            if os.path.exists(MEMORY_FILE):
+                try:
+                    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+                        self.facts = json.load(f)
+                except:
+                    self.facts = []
+
+    def save(self):
+        with self.lock:
+            with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.facts, f, indent=2)
+
+    def add(self, fact, category="other"):
+        if not fact or len(fact) < 3:
+            return
+        fact_lower = fact.lower().strip()
+        with self.lock:
+            if any(f["fact"].lower() == fact_lower for f in self.facts):
+                return
+            self.facts.append({
+                "fact": fact.strip(),
+                "category": category,
+                "timestamp": datetime.datetime.now().isoformat()
+            })
+        self.save()
+
+    def remove(self, query):
+        q = query.lower()
+        with self.lock:
+            before = len(self.facts)
+            self.facts = [f for f in self.facts if q not in f["fact"].lower()]
+            if len(self.facts) < before:
+                changed = True
+            else:
+                changed = False
+        
+        if changed:
+            self.save()
+            return True
+        return False
+
+    def clear(self):
+        with self.lock:
+            self.facts = []
+        self.save()
+
+    def recall(self, query=None, limit=10):
+        with self.lock:
+            if not self.facts:
+                return ""
+            
+            # If no query, just return recent facts
+            if not query:
+                recent = sorted(self.facts, key=lambda x: x["timestamp"], reverse=True)[:limit]
+                return "\n".join(f"- {f['fact']}" for f in recent)
+            
+            # Simple keyword-based relevance search
+            query_words = set(query.lower().split())
+            scored_facts = []
+            for f in self.facts:
+                fact_lower = f["fact"].lower()
+                score = sum(1 for word in query_words if word in fact_lower)
+                if score > 0:
+                    scored_facts.append((score, f))
+            
+            if scored_facts:
+                # Sort by score descending, then by timestamp descending
+                scored_facts.sort(key=lambda x: (x[0], x[1]["timestamp"]), reverse=True)
+                results = [x[1] for x in scored_facts[:limit]]
+            else:
+                # Fallback to most recent
+                results = sorted(self.facts, key=lambda x: x["timestamp"], reverse=True)[:limit]
+                
+            return "\n".join(f"- {f['fact']}" for f in results)
+
+    def recall_all(self):
+        with self.lock:
+            if not self.facts:
+                return "I don't have any specific memories about you yet."
+            lines = [f"• {f['fact']}" for f in self.facts]
+        return "Here is what I remember about you:\n" + "\n".join(lines)
+
+memory = MemoryStore()
+
+FORBIDDEN_PS = re.compile(r'\b(Remove-Item|rm\b|del\b|Format-Volume|Clear-|Restart-Computer|Stop-Computer|Shutdown|Add-LocalGroupMember|Set-LocalUser|Disable-LocalUser)', re.I)
+
+CREATE_NO_WINDOW = 0x08000000
+
+def _run_ps(ps_cmd):
+    subprocess.Popen(['powershell', '-NoProfile', '-Command', ps_cmd],
+                     shell=False, creationflags=CREATE_NO_WINDOW)
+
+USELESS_PATTERNS = re.compile(
+    r'(i\'?m\s+jarvis|i am jarvis|your.*assistant|how can i help|'
+    r'how may i help|nice to meet|hello there|hi there|'
+    r'what can i do for you|is there anything|glad to help)',
+    re.I
+)
+
+def _is_useless_response(text):
+    stripped = re.sub(r'[^\w\s]', '', text).strip().lower()
+    if len(stripped) < 15 and USELESS_PATTERNS.search(stripped):
+        return True
+    return False
+
+PROMPT_ARTIFACTS = re.compile(r'(\[INST\]|\[/INST\]|Answer:|User:|###|\*\*)', re.I)
+
+def _clean_llm_response(res):
+    res = re.sub(r'<thought>.*?</thought>', '', res, flags=re.DOTALL)
+    res = PROMPT_ARTIFACTS.sub('', res)
+    res = res.strip().strip('"\'')
+    return res
+
 def gen_llm(cmd, gui):
     try:
+        context = memory.recall(cmd, limit=3)
+        ctx_line = f" (context: {context})" if context else ""
+        prompt = (
+            "### Instruction: You are a Windows PC assistant.\n"
+            "If a task can be done with PowerShell, output:\n"
+            'POWERSHELL\n<powershell command>\nENDPS\n<confirmation>\n\n'
+            "Otherwise answer in 1 short sentence.\n\n"
+            "Examples:\n"
+            '- open calculator -> POWERSHELL\nStart-Process calc\nENDPS\nDone\n'
+            '- close notepad -> POWERSHELL\nGet-Process notepad | Stop-Process -Force\nENDPS\nClosed\n\n'
+            f"User: {cmd}{ctx_line}\n"
+            "### Response:"
+        )
+
         r = requests.post(OLLAMA_URL, json={
             "model": OLLAMA_MODEL,
-            "prompt": f"Name the app/program for: {cmd}. Reply 1 word only.",
+            "prompt": prompt,
             "stream": False,
-            "options": {"num_ctx": 64, "num_predict": 5, "temperature": 0}
-        }, timeout=15)
-        res = r.json().get("response", "").strip().lower().strip("`'\".,!?:; ")
-        log_command(f"LLM: [{cmd}] -> [{res}]")
-        if res and len(res) > 1 and "sorry" not in res:
-            matched = process.extractOne(res, list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=70)
+            "options": {"num_ctx": 512, "num_predict": 120, "temperature": 0.1,
+                        "stop": ["\n###", "User:", "\n\n\n"]}
+        }, timeout=30)
+
+        if r.status_code != 200:
+            speak("My brain returned an error.", gui)
+            log_command(f"LLM HTTP {r.status_code}: {r.text[:100]}")
+            return
+
+        res = r.json().get("response", "").strip()
+        res = _clean_llm_response(res)
+        if not res or len(res) < 2:
+            speak("Sorry, I didn't understand.", gui)
+            return
+
+        log_command(f"LLM: [{cmd}] -> [{res[:100]}]")
+
+        ps_match = re.search(r'POWERSHELL\s*\n(.*?)\nENDPS', res, re.DOTALL)
+        if ps_match:
+            ps_cmd = ps_match.group(1).strip()
+            if FORBIDDEN_PS.search(ps_cmd):
+                speak("That action is not allowed for safety.", gui)
+            else:
+                try:
+                    _run_ps(ps_cmd)
+                    msg = re.sub(r'POWERSHELL\s*\n.*?\nENDPS', '', res, flags=re.DOTALL).strip()
+                    speak(msg if msg else "Done", gui)
+                except Exception as e:
+                    speak(f"Failed: {e}", gui)
+            threading.Thread(target=extract_memory, args=(cmd, res, gui), daemon=True).start()
+            return
+
+        if _is_useless_response(res):
+            speak("Sorry, I didn't understand that.", gui)
+            log_command(f"LLM: filtered useless response: [{res[:50]}]")
+            return
+
+        if len(res) > 1:
+            matched = process.extractOne(res.lower(), list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=85)
             if matched:
                 subprocess.Popen(COMMAND_MAP[matched[0]], shell=True)
                 speak(f"Opening {matched[0]}", gui)
             else:
-                try:
-                    subprocess.Popen(f"start {res}", shell=True)
-                    speak(f"Opening {res}", gui)
-                except:
-                    speak(f"Trying {res}", gui)
-        else:
-            speak("I don't know", gui)
-    except:
-        speak("I don't know", gui)
+                speak(res, gui)
+
+        threading.Thread(target=extract_memory, args=(cmd, res, gui), daemon=True).start()
+    except Exception as e:
+        log_command(f"LLM Error: {str(e)}")
+        speak("I encountered an error connecting to my brain.", gui)
+
+def extract_memory(user_cmd, llm_resp, gui):
+    try:
+        prompt = f"""Analyze this interaction and identify any NEW personal facts, preferences, or details the user shared.
+User: "{user_cmd}"
+Assistant: "{llm_resp}"
+
+Rules:
+1. Only extract long-term useful facts (e.g., interests, names, habits).
+2. Format as 'fact|category'. Categories: identity, preference, work, other.
+3. If no new facts, reply 'NONE'.
+4. Be concise. Do not repeat existing known facts.
+
+User Memory for context:
+{memory.recall(limit=20)}
+
+Reply with facts only:"""
+
+        r = requests.post(OLLAMA_URL, json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"num_ctx": 512, "num_predict": 60, "temperature": 0}
+        }, timeout=15)
+        
+        res = r.json().get("response", "").strip()
+        if res and "NONE" not in res.upper():
+            new_facts = []
+            for line in res.split("\n"):
+                line = line.strip()
+                if line.startswith("- "):
+                    line = line[2:]
+                line = line.strip()
+                if "|" in line:
+                    fact, cat = line.rsplit("|", 1)
+                    fact = fact.strip()
+                    if fact and len(fact) > 5:
+                        memory.add(fact, cat.strip())
+                        new_facts.append(fact)
+            
+            if new_facts:
+                log_command(f"Memory Updated: {len(new_facts)} facts added.")
+                # We could potentially notify the user, but ChatGPT does it subtly.
+                # Maybe a small dot or something in GUI? 
+                # For now, let's just log it.
+    except Exception as e:
+        log_command(f"Memory Extraction Error: {str(e)}")
 
 def fuzzy_find(cmd, gui):
     cmd_lower = cmd.lower().strip()
@@ -371,8 +652,26 @@ def log_command(cmd, status="executed"):
     with open(HISTORY_FILE, "a", encoding="utf-8") as f:
         f.write(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {cmd} -> {status}\n")
 
+def main_loop(gui):
+    time.sleep(1)
+    # Loop runs while the GUI is marked as running
+    while gui.running:
+        if not gui.awake:
+            result = listen_for_wake()
+            if result:
+                gui.activate(has_cmd=isinstance(result, str))
+            if isinstance(result, str):
+                handle_cmd(result, gui)
+        else:
+            cmd = listen_for_cmd(gui)
+            if cmd:
+                handle_cmd(cmd, gui)
+            else:
+                gui.set_status("idle")
+
 def handle_cmd(cmd, gui):
     cmd = cmd.lower().strip()
+    gui.add_transcript("You", cmd)
     gui.set_status("processing", f"You said: {cmd}")
     log_command(cmd)
 
@@ -384,7 +683,15 @@ def handle_cmd(cmd, gui):
         d = datetime.datetime.now().strftime("%A, %B %d, %Y")
         speak(f"Today is {d}", gui)
         return
-    if "stop" in cmd or "sleep" in cmd or "bye" in cmd or "go to sleep" in cmd or "deactivate" in cmd:
+    if re.search(r"\bbye\s+jarvis\b", cmd):
+        speak("Goodbye", gui)
+        gui.close()
+        return
+    if re.search(r'\b(?:deactivate|go to sleep)\b', cmd):
+        speak("Going to sleep", gui)
+        gui.deactivate()
+        return
+    if re.search(r'\b(?:stop|sleep|bye)\b', cmd) and not re.search(r'\b(?:stopwatch|stop the music|stop playing|stopwatch|stopped|stopping|storage|sleeping)\b', cmd):
         speak("Going to sleep", gui)
         gui.deactivate()
         return
@@ -412,24 +719,33 @@ def handle_cmd(cmd, gui):
         return
 
     if "how much ram" in cmd or "system info" in cmd or "specs" in cmd or "battery" in cmd or "storage" in cmd:
-        import psutil
-        ram = psutil.virtual_memory()
-        usage = f"{ram.percent}% used out of {round(ram.total/(1024**3))} GB"
-        speak(f"RAM: {usage}", gui)
+        try:
+            import psutil
+            ram = psutil.virtual_memory()
+            usage = f"{ram.percent}% used out of {round(ram.total/(1024**3))} GB"
+            speak(f"RAM: {usage}", gui)
+        except ImportError:
+            speak("psutil library not installed. Cannot check system info.", gui)
         return
 
     if "copy" in cmd and "clipboard" in cmd:
         clip = re.search(r"copy\s+(.+)\s+to\s+clipboard", cmd)
         if clip:
-            import pyperclip
-            pyperclip.copy(clip.group(1))
-            speak("Copied to clipboard", gui)
+            try:
+                import pyperclip
+                pyperclip.copy(clip.group(1))
+                speak("Copied to clipboard", gui)
+            except ImportError:
+                speak("pyperclip library not installed.", gui)
         return
 
     if "clipboard" in cmd and ("paste" in cmd or "read" in cmd or "what" in cmd):
-        import pyperclip
-        t = pyperclip.paste()
-        speak(f"Clipboard: {t[:80]}", gui)
+        try:
+            import pyperclip
+            t = pyperclip.paste()
+            speak(f"Clipboard: {t[:80]}", gui)
+        except ImportError:
+            speak("pyperclip library not installed.", gui)
         return
 
     if "dark mode" in cmd or "light mode" in cmd:
@@ -448,9 +764,13 @@ def handle_cmd(cmd, gui):
         try:
             import keyboard
             keyboard.write(text + "\n")
-        except:
-            import pyperclip
-            pyperclip.copy(text)
+        except ImportError:
+            try:
+                import pyperclip
+                pyperclip.copy(text)
+            except ImportError:
+                speak("keyboard and pyperclip libraries not installed.", gui)
+                return
         speak("Typed", gui)
         return
 
@@ -500,7 +820,6 @@ def handle_cmd(cmd, gui):
                         capture_output=True, text=True, timeout=15
                     )
                     if r.stdout.strip():
-                        import json
                         data = json.loads(r.stdout.strip().split('\n')[0])
                         vid = data.get('id', '')
                         if vid:
@@ -508,12 +827,11 @@ def handle_cmd(cmd, gui):
                             return
                 except:
                     pass
-                import urllib.parse
                 subprocess.Popen(f"start https://music.youtube.com/search?q={urllib.parse.quote(song_name)}", shell=True)
             threading.Thread(target=play_song, args=(song,), daemon=True).start()
         return
 
-    note_match = re.search(r"(?:note this|take note|write note|save note|remember)\s+(.+)", cmd)
+    note_match = re.search(r"(?:note this|take note|write note|save note)\s+(.+)", cmd)
     if note_match:
         note_text = note_match.group(1).strip()
         notes_path = os.path.join(BASE_DIR, "notes.md")
@@ -530,8 +848,41 @@ def handle_cmd(cmd, gui):
             fname = f"screenshot_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
             img.save(os.path.join(SS_FOLDER, fname))
             speak("Screenshot saved", gui)
-        except:
-            speak("Screenshot failed", gui)
+        except ImportError:
+            speak("Pillow library not installed.", gui)
+        except Exception as e:
+            speak(f"Screenshot failed: {e}", gui)
+        return
+
+    if "remember" in cmd or "save that" in cmd or "keep that" in cmd:
+        fact_match = re.search(r"(?:remember|save that|keep that)\s+(.+)", cmd)
+        if fact_match:
+            fact = fact_match.group(1).strip()
+            memory.add(fact, "other")
+            speak(f"Got it, I'll remember that {fact}", gui)
+        elif "remember" in cmd and "what" not in cmd:
+            fact = cmd.replace("remember", "").strip()
+            if fact:
+                memory.add(fact, "other")
+                speak(f"I've added that to my memory.", gui)
+        return
+
+    if re.search(r"what do you know|what.*remember|recall|tell me about me|my memory|who am i", cmd):
+        facts = memory.recall_all()
+        speak(facts, gui)
+        return
+
+    forget_match = re.search(r"(?:forget|delete|remove)\s+(.+)", cmd)
+    if forget_match:
+        if memory.remove(forget_match.group(1)):
+            speak("Forgotten", gui)
+        else:
+            speak("I don't have that saved", gui)
+        return
+
+    if "clear my memory" in cmd or "reset memory" in cmd or "wipe memory" in cmd:
+        memory.clear()
+        speak("Memory cleared", gui)
         return
 
     if not fuzzy_find(cmd, gui):
@@ -542,12 +893,16 @@ def listen_for_wake():
     try:
         with sr.Microphone() as src:
             r.adjust_for_ambient_noise(src, duration=0.3)
-            audio = r.listen(src, timeout=3, phrase_time_limit=3)
+            audio = r.listen(src, timeout=3, phrase_time_limit=5)
         text = r.recognize_google(audio)
         if text and WAKE_WORD in text.lower():
             idx = text.lower().index(WAKE_WORD) + len(WAKE_WORD)
             after = text[idx:].strip()
             return after if after else True
+    except sr.RequestError:
+        log_command("Wake word: network error")
+    except sr.WaitTimeoutError:
+        pass
     except:
         pass
     return False
@@ -558,34 +913,48 @@ def listen_for_cmd(gui):
     try:
         with sr.Microphone() as src:
             r.adjust_for_ambient_noise(src, duration=0.5)
-            audio = r.listen(src, timeout=5)
+            audio = r.listen(src, timeout=5, phrase_time_limit=5)
         text = r.recognize_google(audio)
-        return text.lower() if text else None
+        if text:
+            return text.lower()
+        return None
+    except sr.RequestError:
+        log_command("Speech recognition: network error")
+        speak("Network error with speech recognition.", gui)
+        return None
+    except sr.WaitTimeoutError:
+        return None
     except:
         return None
 
 STARTUP_FILE = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'jarvis.bat')
 
-def main_loop(gui):
-    time.sleep(1)
+
+
+def run_background_listener():
+    log_command("Background listener started")
     while True:
-        if not gui.awake:
-            result = listen_for_wake()
-            if result:
-                gui.activate(has_cmd=isinstance(result, str))
-            if isinstance(result, str):
-                handle_cmd(result, gui)
-        else:
-            cmd = listen_for_cmd(gui)
-            if cmd:
-                handle_cmd(cmd, gui)
-            else:
-                gui.set_status("idle")
+        try:
+            r = sr.Recognizer()
+            with sr.Microphone() as src:
+                r.adjust_for_ambient_noise(src, duration=0.5)
+                audio = r.listen(src, timeout=5, phrase_time_limit=5)
+            text = r.recognize_google(audio).lower()
+            if WAKE_WORD in text:
+                log_command("Wake word detected in background, launching GUI")
+                subprocess.Popen(['pythonw', os.path.abspath(__file__)])
+                time.sleep(5)
+        except Exception:
+            time.sleep(1)
 
 def main():
-    gui = JarvisGUI()
-    threading.Thread(target=main_loop, args=(gui,), daemon=True).start()
-    gui.run()
+    if "--bg" in sys.argv:
+        run_background_listener()
+    else:
+        gui = JarvisGUI()
+        gui.running = True
+        threading.Thread(target=main_loop, args=(gui,), daemon=True).start()
+        gui.run()
 
 if __name__ == "__main__":
     main()

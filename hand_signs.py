@@ -1,10 +1,10 @@
 import cv2
 import mediapipe as mp
 import numpy as np
-import subprocess
-import threading
 import urllib.request
 import os
+
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 model_path = "hand_landmarker.task"
 if not os.path.exists(model_path):
@@ -68,22 +68,10 @@ def detect_gesture(up, lm):
     c = sum(up)
     return ["ONE", "TWO", "THREE", "FOUR", "FIVE"][c-1] if 1 <= c <= 5 else None
 
-HAND_COMMANDS = {
-    "PALM": "Hello!", "FIST": "Lock PC", "THUMBS_UP": "Vol Up",
-    "POINT": "Click", "PEACE": "Peace!", "ROCK": "Rock On!", "PINKY": "Pinky",
-    "OK": "OK!", "ONE": "1", "TWO": "2", "THREE": "3", "FOUR": "4", "FIVE": "5",
-}
-
-HAND_ACTIONS = {
-    "FIST": lambda: subprocess.Popen("rundll32.exe user32.dll,LockWorkStation"),
-}
-
-last = None
-counts = {}
 CONNECTIONS = [(0,1),(1,2),(2,3),(3,4),(0,5),(5,6),(6,7),(7,8),(5,9),(9,10),
                (10,11),(11,12),(9,13),(13,14),(14,15),(15,16),(13,17),(17,18),(18,19),(19,20),(0,17)]
 
-print("Hand Sign Detector — ESC to quit")
+print("Hand + Face Detector — ESC to quit")
 
 while cap.isOpened():
     ret, frame = cap.read()
@@ -92,8 +80,16 @@ while cap.isOpened():
     frame = cv2.flip(frame, 1)
     h, w, _ = frame.shape
 
-    mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
     result = landmarker.detect(mp_img)
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.1, 5, minSize=(60, 60))
+    for (fx, fy, fw, fh) in faces:
+        cv2.rectangle(frame, (fx, fy), (fx+fw, fy+fh), (0, 255, 0), 2)
+        cv2.putText(frame, "FACE", (fx, fy-10), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (0, 255, 0), 2)
 
     if result.hand_landmarks:
         for hl in result.hand_landmarks:
@@ -109,24 +105,6 @@ while cap.isOpened():
             if gesture:
                 cv2.putText(frame, gesture, (10, 50), cv2.FONT_HERSHEY_SIMPLEX,
                             1.3, (0, 255, 0), 3)
-                text = HAND_COMMANDS.get(gesture, "")
-                if text:
-                    cv2.putText(frame, text, (10, 90), cv2.FONT_HERSHEY_SIMPLEX,
-                                0.9, (255, 255, 0), 2)
-
-                if gesture != last:
-                    last = gesture
-                    counts[gesture] = counts.get(gesture, 0) + 1
-                    if gesture in HAND_ACTIONS:
-                        threading.Thread(target=HAND_ACTIONS[gesture], daemon=True).start()
-
-                y = 130
-                for g, c in sorted(counts.items(), key=lambda x: -x[1])[:6]:
-                    cv2.putText(frame, f"{g}: {c}", (10, y),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (180, 180, 180), 1)
-                    y += 25
-    else:
-        last = None
 
     cv2.putText(frame, "ESC exit", (w-120, 30), cv2.FONT_HERSHEY_SIMPLEX,
                 0.6, (100, 100, 100), 1)

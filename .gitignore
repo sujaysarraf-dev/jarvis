@@ -1,5 +1,9 @@
 *.mp3
+*.task
 __pycache__/
 *.pyc
 jarvis.log
+jarvis.lock
+command_history.txt
 ss/
+user_memory.json
