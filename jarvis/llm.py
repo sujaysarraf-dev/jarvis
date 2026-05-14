@@ -183,7 +183,7 @@ def gen_llm(cmd, gui):
             "2. If no action is needed, answer in one concise sentence.\n"
             "3. NEVER explain reasoning. NEVER use XML tags. ALWAYS use ENDPS.\n\n"
             "PC Control Reference:\n"
-            "- Open app: Start-Process <name>\n"
+            "- Open app: Start-Process <appname>   (NO -Name flag, just the app name)\n"
             "- Close app: taskkill /F /IM <process.exe> or Stop-Process -Name <name> -Force\n"
             "- Volume up: (New-Object -ComObject WScript.Shell).SendKeys([char]175)\n"
             "- Volume down: (New-Object -ComObject WScript.Shell).SendKeys([char]174)\n"
