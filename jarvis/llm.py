@@ -1,11 +1,9 @@
 import re
 import time
-import json
 import threading
 import requests
-from rapidfuzz import fuzz, process
 from jarvis.config import (
-    ACTIVE_API_URL, ACTIVE_API_KEY, ACTIVE_MODEL, COMMAND_MAP,
+    ACTIVE_API_URL, ACTIVE_API_KEY, ACTIVE_MODEL,
     OPENROUTER_TIMEOUT, OPENROUTER_FALLBACK_MODELS
 )
 from jarvis.memory import memory
@@ -173,17 +171,43 @@ def gen_llm(cmd, gui):
     try:
         user_context = memory.recall_all_formatted()
         sys_prompt = (
-            "You are JARVIS, a highly advanced Windows PC assistant. Rules:\n"
-            "1. To perform ANY system action (volume, brightness, opening files, folders, calculations, DELETING files), you MUST use this format:\n"
-            "POWERSHELL\n<valid powershell command>\nENDPS\n<short confirmation>\n"
-            "2. For calculations, use powershell (e.g., '27 + 97').\n"
-            "3. For volume, use: (New-Object -ComObject WScript.Shell).SendKeys([char]175) for up, 174 for down.\n"
-            "4. For deleting files/folders, always base paths on what the user tells you. Do NOT guess paths. If unsure, ask.\n"
-            "5. If no system action is needed, answer in exactly one concise sentence.\n"
-            "6. NEVER explain your reasoning. NEVER use XML tags like <tool_call>. ALWAYS use ENDPS.\n"
-            "7. Use the user's name if known.\n\n"
-            "Example:\n"
-            "user: volume up -> POWERSHELL\n(New-Object -ComObject WScript.Shell).SendKeys([char]175)\nENDPS\nVolume increased.\n"
+            "You are JARVIS, a Windows PC assistant that controls everything via PowerShell. Rules:\n"
+            "1. For ANY system action, output:\n"
+            "POWERSHELL\n<powershell command>\nENDPS\n<short confirmation>\n"
+            "2. If no action is needed, answer in one concise sentence.\n"
+            "3. NEVER explain reasoning. NEVER use XML tags. ALWAYS use ENDPS.\n\n"
+            "PC Control Reference:\n"
+            "- Open app: Start-Process <name>\n"
+            "- Close app: taskkill /F /IM <process.exe> or Stop-Process -Name <name> -Force\n"
+            "- Volume up: (New-Object -ComObject WScript.Shell).SendKeys([char]175)\n"
+            "- Volume down: (New-Object -ComObject WScript.Shell).SendKeys([char]174)\n"
+            "- Volume mute: (New-Object -ComObject WScript.Shell).SendKeys([char]173)\n"
+            "- Brightness up/down: (Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,<0-100>)\n"
+            "- WiFi on: Enable-NetAdapter -Name \"Wi-Fi\"\n"
+            "- WiFi off: Disable-NetAdapter -Name \"Wi-Fi\"\n"
+            "- Bluetooth on: Enable-PnpDevice -InstanceId (Get-PnpDevice -Class Bluetooth).InstanceId\n"
+            "- Bluetooth off: Disable-PnpDevice -InstanceId (Get-PnpDevice -Class Bluetooth).InstanceId\n"
+            "- Dark mode: New-ItemProperty -Path HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize -Name AppsUseLightTheme -Value 0 -Force\n"
+            "- Light mode: New-ItemProperty -Path HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize -Name AppsUseLightTheme -Value 1 -Force\n"
+            "- Screenshot: Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{PRTSC}')\n"
+            "- System info (RAM): Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory\n"
+            "- System info (CPU): Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores\n"
+            "- System info (disk): Get-CimInstance Win32_LogicalDisk -Filter \"DriveType=3\" | Select-Object DeviceID,Size,FreeSpace\n"
+            "- Battery: Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining\n"
+            "- Open website: Start-Process \"https://<url>\"\n"
+            "- Search web: Start-Process \"https://www.google.com/search?q=<query>\"\n"
+            "- Clipboard copy: Set-Clipboard -Value \"<text>\"\n"
+            "- Clipboard paste: Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^V')\n"
+            "- Type text: Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\"<text>\")\n"
+            "- Calculator: <expression> | ForEach-Object { [math]::Evaluate($_).ToString() } \n"
+            "- Play YouTube: Start-Process \"https://www.youtube.com/results?search_query=<query>\"\n"
+            "- List processes: Get-Process | Select-Object Name,Id\n"
+            "- Kill process: Stop-Process -Id <id> -Force\n"
+            "- Create folder: New-Item -Path \"<path>\" -ItemType Directory -Force\n"
+            "- Delete folder: Remove-Item -Path \"<path>\" -Recurse -Force\n"
+            "- List files: Get-ChildItem -Path \"<path>\"\n\n"
+            "For file/folder paths, only use paths the user explicitly mentions. Never guess.\n"
+            "For non-PC questions, just answer directly without POWERSHELL.\n"
         )
         if user_context:
             sys_prompt += f"\n\nUser Context:\n{user_context}"
@@ -218,13 +242,8 @@ def gen_llm(cmd, gui):
             if len(_conversation_history) > _MAX_HISTORY:
                 _conversation_history.pop(0)
 
-        if res and len(res) > 1:
-            if "POWERSHELL" not in res.upper():
-                matched = process.extractOne(res.lower(), list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=85)
-                if matched:
-                    import subprocess
-                    subprocess.Popen(COMMAND_MAP[matched[0]], shell=True)
-                    speak(f"Opening {matched[0]}", gui)
+        if res and len(res) > 1 and "POWERSHELL" not in res.upper() and gui.streaming_idx is not None:
+            gui.end_streaming()
     except Exception as e:
         log_command(f"LLM Error: {str(e)}")
         threading.Thread(target=speak, args=("I encountered an error connecting to my brain.", gui), daemon=True).start()
