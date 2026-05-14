@@ -132,7 +132,7 @@ def handle_cmd(cmd, gui):
             speak("Opening.", gui)
             return
 
-    if "close " in cmd or "kill " in cmd:
+    if re.search(r'\b(?:close|kill|shut)\b', cmd) or cmd.startswith("x "):
         proc = _fuzzy_find_close(cmd)
         if proc:
             log_command(f"Closing: {proc}")
