@@ -136,9 +136,15 @@ def handle_cmd(cmd, gui):
         proc = _fuzzy_find_close(cmd)
         if proc:
             log_command(f"Closing: {proc}")
-            subprocess.run(['powershell', '-NoProfile', f'Stop-Process -Name {proc} -Force'],
-                          shell=False, creationflags=CREATE_NO_WINDOW, timeout=10)
-            speak("Closed.", gui)
+            r = subprocess.run(['powershell', '-NoProfile',
+                                f'Stop-Process -Name {proc} -Force -ErrorAction Stop'],
+                              shell=False, creationflags=CREATE_NO_WINDOW, timeout=10,
+                              capture_output=True, text=True)
+            if r.returncode == 0:
+                speak("Closed.", gui)
+            else:
+                log_command(f"Close failed: {r.stderr.strip()}")
+                speak(f"Could not close {cmd.replace('close','').replace('kill','').strip()}", gui)
             return
 
     from jarvis.llm import gen_llm
