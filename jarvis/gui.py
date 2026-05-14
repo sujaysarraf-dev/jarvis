@@ -386,7 +386,7 @@ def main_loop(gui):
                 if is_oww_available() and not speech_mod._oww_thread_alive:
                     log_command("OWW listener dead, restarting...")
                     start_oww_listener()
-                if not is_oww_available() or _idle_counter > 300:
+                if not is_oww_available() or _idle_counter > 50:
                     _idle_counter = 0
                     result = listen_for_wake()
                     if result:

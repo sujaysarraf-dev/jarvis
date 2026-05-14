@@ -77,6 +77,7 @@ def speak(text, gui, add_transcript=True):
         
         if _HAVE_GTTS and _HAVE_PYGAME:
             try:
+                pygame.mixer.init()
                 tts = gTTS(text=text, lang="en", tld="com", slow=False)
                 tts.save(speech_file)
                 pygame.mixer.music.load(speech_file)
@@ -95,8 +96,6 @@ def speak(text, gui, add_transcript=True):
                 if os.path.exists(speech_file):
                     try: os.remove(speech_file)
                     except: pass
-                if _HAVE_PYGAME:
-                    pygame.mixer.quit()
         
         if not spoken and not INTERRUPT_EVENT.is_set():
             try:
