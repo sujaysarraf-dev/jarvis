@@ -35,8 +35,14 @@ OPENROUTER_FALLBACK_MODELS = [
     "microsoft/phi-3-mini-128k-instruct:free",
 ]
 
-VISION_MODEL = "openrouter/free"
-VISION_URL = OPENROUTER_URL
+if GROQ_API_KEY:
+    VISION_API_KEY = GROQ_API_KEY
+    VISION_URL = GROQ_URL
+    VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+else:
+    VISION_API_KEY = OPENROUTER_API_KEY
+    VISION_URL = OPENROUTER_URL
+    VISION_MODEL = "openrouter/free"
 VISION_TIMEOUT = 30
 
 VISION_PATTERNS = re.compile(

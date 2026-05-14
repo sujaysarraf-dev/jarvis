@@ -7,7 +7,7 @@ import requests
 from jarvis.config import (
     ACTIVE_API_URL, ACTIVE_API_KEY, ACTIVE_MODEL,
     OPENROUTER_TIMEOUT, OPENROUTER_FALLBACK_MODELS,
-    VISION_MODEL, VISION_URL, VISION_TIMEOUT
+    VISION_MODEL, VISION_URL, VISION_API_KEY, VISION_TIMEOUT
 )
 from jarvis.memory import memory
 from jarvis.speech import speak, capture_screen_b64
@@ -206,6 +206,8 @@ def gen_llm(cmd, gui):
             "- Clipboard copy: Set-Clipboard -Value \"<text>\"\n"
             "- Clipboard paste: Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^V')\n"
             "- Type text: Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\"<text>\")\n"
+            "- Current time: Get-Date -Format 'hh:mm tt'\n"
+            "- Current date: Get-Date -Format 'dddd, MMMM dd, yyyy'\n"
             "- Calculator: Write-Host ([math]::Evaluate('12.5 * 3'))\n"
             "- Play YouTube: Start-Process \"https://www.youtube.com/results?search_query=never+gonna+give+you+up\"\n"
             "- List processes: Get-Process | Select-Object Name,Id\n"
@@ -256,34 +258,43 @@ def gen_llm(cmd, gui):
         threading.Thread(target=speak, args=("I encountered an error connecting to my brain.", gui), daemon=True).start()
 
 def ask_vision(cmd, gui):
-    if not ACTIVE_API_KEY:
+    log_command("Vision: starting")
+    if not VISION_API_KEY:
         speak("Please set your API key in the .env file.", gui)
         return
     try:
         gui.set_status("looking")
         speak("Looking at your screen.", gui)
+        log_command("Vision: spoke looking")
 
         b64 = capture_screen_b64()
         if not b64:
             speak("I couldn't capture the screen.", gui)
+            log_command("Vision: capture failed")
             return
+        log_command(f"Vision: captured ({len(b64)//1024}KB)")
 
         gui.set_status("processing", "Analyzing screen...")
-        messages = [
-            {"role": "system", "content": "You are JARVIS, a screen vision assistant. The user has shared their screen. Answer their question about what's on screen concisely in 1-2 sentences."},
-            {"role": "user", "content": [
-                {"type": "text", "text": cmd},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
-            ]}
-        ]
+        messages = [{"role": "system", "content": "You are JARVIS, a screen vision assistant. The user has shared their screen. Answer concisely in 1-2 sentences. If unsure, say 'I am not sure'."}]
 
+        for user_msg, asst_msg in _conversation_history:
+            messages.append({"role": "user", "content": user_msg})
+            messages.append({"role": "assistant", "content": asst_msg})
+
+        messages.append({"role": "user", "content": [
+            {"type": "text", "text": cmd},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+        ]})
+
+        log_command("Vision: calling API")
         resp = requests.post(VISION_URL, json={
             "model": VISION_MODEL, "messages": messages,
             "max_tokens": 200, "temperature": 0.1, "stream": False,
         }, headers={
-            "Authorization": f"Bearer {ACTIVE_API_KEY}",
+            "Authorization": f"Bearer {VISION_API_KEY}",
             "Content-Type": "application/json"
         }, timeout=VISION_TIMEOUT)
+        log_command(f"Vision: API returned {resp.status_code}")
 
         if resp.status_code != 200:
             speak("I had trouble analyzing the screen.", gui)
@@ -294,13 +305,20 @@ def ask_vision(cmd, gui):
         answer = data.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not answer:
             speak("I couldn't see anything clearly.", gui)
+            log_command("Vision: empty response")
             return
 
-        sentences = re.split(r'(?<=[.!?])\s+', answer)
-        for s in sentences:
-            s = s.strip()
-            if s:
-                speak(s, gui, add_transcript=False)
+        _conversation_history.append((cmd, answer))
+        if len(_conversation_history) > _MAX_HISTORY:
+            _conversation_history.pop(0)
+
+        if "not sure" in answer.lower() or "i am not" in answer.lower():
+            speak("I'm not sure what you mean. Tell me what to look for.", gui)
+            log_command(f"Vision: unsure: {answer[:80]}")
+            return
+
+        log_command(f"Vision: response: {answer[:100]}")
+        gui.add_transcript("Jarvis", answer)
     except Exception as e:
         log_command(f"Vision error: {str(e)}")
         speak("I encountered an error looking at your screen.", gui)
