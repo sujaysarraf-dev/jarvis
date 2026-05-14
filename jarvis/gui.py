@@ -37,7 +37,6 @@ class JarvisGUI:
         self._wave_rings = []
         self._wave_phase = 0
         self._particle_angles = [random.random() * math.pi * 2 for _ in range(8)]
-        self._status_flash = 0
 
         self.size = 160
         self.glow_color = "#00d4ff"
@@ -274,118 +273,72 @@ class JarvisGUI:
         self.rotation_angle = (self.rotation_angle + 2) % 360
         rad = math.radians(self.rotation_angle)
 
-        status_speed_mult = {"idle": 0.5, "wake": 2.0, "listening": 2.5,
-                            "processing": 3.0, "speaking": 1.5, "looking": 2.0}
-        speed = status_speed_mult.get(self.last_status, 1.0)
+        status = self.last_status
+        speed = {"idle": 0.5, "wake": 2.0, "listening": 2.5,
+                "processing": 3.0, "speaking": 1.5, "looking": 2.0}.get(status, 1.0)
 
-        r_outer = S // 2 - 10
-        r_inner = S // 2 - 18
+        n = len(self.dashes)
+        step = math.pi * 2 / n
+        base = rad * speed
+        r_out = S // 2 - 10
+        r_in = S // 2 - 18
         for i, dash in enumerate(self.dashes):
-            angle = rad * speed + i * (math.pi * 2 / len(self.dashes))
-            x1 = cx + math.cos(angle) * r_inner
-            y1 = cy + math.sin(angle) * r_inner
-            x2 = cx + math.cos(angle) * r_outer
-            y2 = cy + math.sin(angle) * r_outer
+            a = base + i * step
+            x1 = cx + math.cos(a) * r_in
+            y1 = cy + math.sin(a) * r_in
+            x2 = cx + math.cos(a) * r_out
+            y2 = cy + math.sin(a) * r_out
             self.canvas.coords(dash, x1, y1, x2, y2)
 
-        pulse_speeds = {"idle": 0.04, "wake": 0.12, "listening": 0.15,
-                       "processing": 0.2, "speaking": 0.1, "looking": 0.12}
-        pulse_rate = pulse_speeds.get(self.last_status, 0.06)
+        pulse_rate = {"idle": 0.04, "wake": 0.12, "listening": 0.15,
+                     "processing": 0.2, "speaking": 0.1, "looking": 0.12}.get(status, 0.06)
         self.pulse_phase = (self.pulse_phase + pulse_rate) % (math.pi * 2)
         pulse = math.sin(self.pulse_phase) * 0.5 + 0.5
 
-        if self.last_status != "idle":
-            self._status_flash = max(0, self._status_flash - 0.03)
-            flash = 1.0 + self._status_flash * 6
-        else:
-            flash = 1.0 + pulse * 0.3
+        is_active = status != "idle"
 
-        color = self.canvas.itemcget(self.outer_ring, "outline")
-        r, g, b = self._hex_to_rgb(color)
-        r = min(255, int(r * flash))
-        g = min(255, int(g * flash))
-        b = min(255, int(b * flash))
-        bright = self._rgb_to_hex(r, g, b)
-
-        if self.last_status in ("processing", "listening", "speaking", "wake", "looking"):
-            glow_offset = pulse * 5
-            self.canvas.coords(self.outer_glow, 3 - glow_offset/3, 3 - glow_offset/3,
-                              S - 3 + glow_offset/3, S - 3 + glow_offset/3)
-            self.canvas.coords(self.inner_ring, 40 - glow_offset, 40 - glow_offset,
-                              S - 40 + glow_offset, S - 40 + glow_offset)
-            if self.last_status == "speaking":
-                w = 4 + pulse * 4
-            elif self.last_status == "processing":
-                w = 3 + pulse * 2
-            else:
-                w = 3 + pulse
-            self.canvas.itemconfig(self.outer_ring, width=max(2, int(w)))
-            self.canvas.itemconfig(self.status_dot, fill=bright)
+        if is_active:
+            go = pulse * 5
+            self.canvas.coords(self.outer_glow, 3 - go/3, 3 - go/3, S - 3 + go/3, S - 3 + go/3)
+            self.canvas.coords(self.inner_ring, 40 - go, 40 - go, S - 40 + go, S - 40 + go)
+            w = int(4 + pulse * 4) if status == "speaking" else int(3 + pulse * (2 if status == "processing" else 1))
+            self.canvas.itemconfig(self.outer_ring, width=max(2, w))
         else:
-            self.canvas.itemconfig(self.outer_ring, width=3)
-            self.canvas.itemconfig(self.status_dot, fill=self.idle_color)
             self.canvas.coords(self.outer_glow, 3, 3, S-3, S-3)
             self.canvas.coords(self.inner_ring, 40, 40, S-40, S-40)
+            self.canvas.itemconfig(self.outer_ring, width=3)
 
-        particle_orbit = S // 2 - 13
-        for i, p in enumerate(self.particles):
-            self._particle_angles[i] = (self._particle_angles[i] + (0.03 + i * 0.005) * speed) % (math.pi * 2)
-            pa = self._particle_angles[i]
-            px = cx + math.cos(pa) * (particle_orbit + pulse * (2 if i % 2 == 0 else -2))
-            py = cy + math.sin(pa) * (particle_orbit + pulse * (2 if i % 2 == 0 else -2))
-            psize = max(1, int(2 + pulse * (1.5 if i % 2 == 0 else 0.5)))
-            self.canvas.coords(p, px - psize, py - psize, px + psize, py + psize)
+        if is_active:
+            po = S // 2 - 13
+            for i, p in enumerate(self.particles):
+                self._particle_angles[i] = (self._particle_angles[i] + (0.03 + i * 0.005) * speed) % (math.pi * 2)
+                pa = self._particle_angles[i]
+                px = cx + math.cos(pa) * (po + pulse * (2 if i % 2 == 0 else -2))
+                py = cy + math.sin(pa) * (po + pulse * (2 if i % 2 == 0 else -2))
+                ps = 2 + pulse * (1.5 if i % 2 == 0 else 0.5)
+                self.canvas.coords(p, px - ps, py - ps, px + ps, py + ps)
+        else:
+            for p in self.particles:
+                self.canvas.coords(p, 0, 0, 0, 0)
 
-        self._wave_phase = (self._wave_phase + 0.06) % (math.pi * 2)
-        if self.last_status == "speaking":
+        if status == "speaking":
+            self._wave_phase = (self._wave_phase + 0.08) % (math.pi * 2)
             for i, w in enumerate(self.wave_rings_canvas):
-                wp = (self._wave_phase + i * math.pi * 2 / 3) % (math.pi * 2)
-                wsize = 5 + wp * 18
-                alpha = max(0, 1.0 - wp / (math.pi * 2))
-                wcolor = self._alpha_color(self.speaking_color, alpha)
-                self.canvas.coords(w, cx - wsize, cy - wsize, cx + wsize, cy + wsize)
-                self.canvas.itemconfig(w, outline=wcolor, width=max(1, int(alpha * 3)))
+                wp = (self._wave_phase + i * 2.094) % (math.pi * 2)
+                ws = 5 + wp * 18
+                a = max(0, 1.0 - wp / 6.283)
+                ar = int(10 + (0 - 10) * a)
+                ag = int(10 + (136 - 10) * a)
+                ab = int(10 + (255 - 10) * a)
+                wc = f"#{ar:02x}{ag:02x}{ab:02x}"
+                self.canvas.coords(w, cx - ws, cy - ws, cx + ws, cy + ws)
+                self.canvas.itemconfig(w, outline=wc, width=max(1, int(a * 3)))
                 self.canvas.tag_raise(w, self.core_glow)
         else:
             for w in self.wave_rings_canvas:
                 self.canvas.coords(w, cx, cy, cx, cy)
 
-        self.root.after(20, self.update_animation)
-
-    def _hex_to_rgb(self, h):
-        h = h.lstrip("#")
-        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
-
-    def _rgb_to_hex(self, r, g, b):
-        return f"#{r:02x}{g:02x}{b:02x}"
-
-    def _alpha_color(self, hex_color, alpha):
-        r, g, b = self._hex_to_rgb(hex_color)
-        bg_r, bg_g, bg_b = 10, 10, 10
-        ar = int(bg_r + (r - bg_r) * alpha)
-        ag = int(bg_g + (g - bg_g) * alpha)
-        ab = int(bg_b + (b - bg_b) * alpha)
-        return self._rgb_to_hex(ar, ag, ab)
-
-    def add_transcript(self, role, text):
-        if role == "Jarvis" and self.streaming_idx is not None:
-            return
-        self.transcript.append((role, text, datetime.datetime.now().strftime("%H:%M:%S")))
-        if len(self.transcript) > 50:
-            self.transcript = self.transcript[-50:]
-        self.root.after(0, self._refresh_transcript)
-
-    def update_streaming(self, token):
-        if self.streaming_idx is None:
-            self.transcript.append(("Jarvis", token, datetime.datetime.now().strftime("%H:%M:%S")))
-            self.streaming_idx = len(self.transcript) - 1
-        else:
-            _, old, ts = self.transcript[self.streaming_idx]
-            self.transcript[self.streaming_idx] = ("Jarvis", old + token, ts)
-        self.root.after(0, self._refresh_transcript)
-
-    def end_streaming(self):
-        self.streaming_idx = None
+        self.root.after(33, self.update_animation)
 
     def _refresh_transcript(self):
         if hasattr(self, 'transcript_box') and self.info_win and self.info_win.winfo_exists():
