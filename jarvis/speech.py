@@ -145,10 +145,13 @@ def resume_oww():
     global _oww_paused
     _oww_paused = False
 
+_oww_thread_alive = False
+
 def _oww_listen_loop():
-    global _oww_stream, _oww_pyaudio
+    global _oww_stream, _oww_pyaudio, _oww_thread_alive
     import pyaudio
     _oww_pyaudio = pyaudio.PyAudio()
+    _oww_thread_alive = True
     buf = []
     while True:
         try:
@@ -172,7 +175,8 @@ def _oww_listen_loop():
             if pred.get("hey_jarvis", 0) > 0.6:
                 INTERRUPT_EVENT.set()
                 WAKE_EVENT.set()
-        except Exception:
+        except Exception as e:
+            log_command(f"OWW listener error: {e}")
             if _oww_stream:
                 try:
                     _oww_stream.close()
@@ -181,6 +185,8 @@ def _oww_listen_loop():
                 _oww_stream = None
             buf = []
             time.sleep(0.2)
+    _oww_thread_alive = False
+    log_command("OWW listener thread stopped")
 
 def listen_for_wake():
     # Wait for speech to finish if any

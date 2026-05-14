@@ -9,6 +9,7 @@ import subprocess
 import math
 from jarvis.config import BASE_DIR, SS_FOLDER, STARTUP_FILE
 from jarvis.speech import speak, listen_for_wake, listen_for_cmd, WAKE_EVENT, is_oww_available, start_oww_listener, pause_oww, resume_oww, SPEAK_LOCK
+import jarvis.speech as speech_mod
 from jarvis.utils import log_command
 
 class JarvisGUI:
@@ -352,7 +353,10 @@ def _listen_with_oww_pause(gui, timeout=2):
     resume_oww()
     return cmd
 
+_idle_counter = 0
+
 def main_loop(gui):
+    global _idle_counter
     time.sleep(1)
     if is_oww_available():
         start_oww_listener()
@@ -361,6 +365,7 @@ def main_loop(gui):
         try:
             if WAKE_EVENT.is_set():
                 WAKE_EVENT.clear()
+                _idle_counter = 0
                 log_command("Wake word detected!")
                 gui.root.after(0, lambda: gui.show_gui_from_bg(should_activate=False))
                 gui.awake = True
@@ -377,7 +382,12 @@ def main_loop(gui):
                 continue
 
             if not gui.awake:
-                if not is_oww_available():
+                _idle_counter += 1
+                if is_oww_available() and not speech_mod._oww_thread_alive:
+                    log_command("OWW listener dead, restarting...")
+                    start_oww_listener()
+                if not is_oww_available() or _idle_counter > 300:
+                    _idle_counter = 0
                     result = listen_for_wake()
                     if result:
                         gui.activate(has_cmd=isinstance(result, str))
