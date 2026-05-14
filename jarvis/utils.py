@@ -60,7 +60,29 @@ def log_command(cmd, status="executed"):
     except:
         pass
 
+_APP_FIXES = {
+    "calculator": "calc", "Calculator": "calc",
+    "notepad": "notepad", "Notepad": "notepad",
+    "chrome": "chrome", "Chrome": "chrome",
+    "edge": "msedge", "Edge": "msedge",
+    "firefox": "firefox", "Firefox": "firefox",
+    "code": "code", "Code": "code",
+    "spotify": "spotify", "Spotify": "spotify",
+    "discord": "discord", "Discord": "discord",
+    "paint": "mspaint", "Paint": "mspaint",
+}
+
+def _fix_ps_start_process(ps_cmd):
+    m = re.search(r'Start-Process (\S+)', ps_cmd)
+    if m:
+        name = m.group(1)
+        if name in _APP_FIXES:
+            fixed = _APP_FIXES[name]
+            ps_cmd = ps_cmd.replace(name, fixed)
+    return ps_cmd
+
 def _run_ps(ps_cmd):
+    ps_cmd = _fix_ps_start_process(ps_cmd)
     try:
         r = subprocess.run(['powershell', '-NoProfile', '-Command', ps_cmd],
                           shell=False, creationflags=CREATE_NO_WINDOW,
