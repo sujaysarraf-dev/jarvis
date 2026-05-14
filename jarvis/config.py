@@ -17,10 +17,15 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# Primary API Configuration
-ACTIVE_API_KEY = GROQ_API_KEY
-ACTIVE_API_URL = GROQ_URL
-ACTIVE_MODEL = GROQ_MODEL
+# Primary API Configuration — prefer GROQ if set, fall back to OpenRouter
+if GROQ_API_KEY:
+    ACTIVE_API_KEY = GROQ_API_KEY
+    ACTIVE_API_URL = GROQ_URL
+    ACTIVE_MODEL = GROQ_MODEL
+else:
+    ACTIVE_API_KEY = OPENROUTER_API_KEY
+    ACTIVE_API_URL = OPENROUTER_URL
+    ACTIVE_MODEL = OPENROUTER_MODEL
 
 OPENROUTER_FALLBACK_MODELS = [
     "openrouter/free",
@@ -98,7 +103,7 @@ KNOWN_ACTIONS = [
     ("open screenshots", lambda: os.startfile(SS_FOLDER), ["open screenshots folder", "show screenshots folder"]),
 ]
 
-FORBIDDEN_PS = re.compile(r'\b(Format-Volume|Clear-Disk|Add-LocalGroupMember|Set-LocalUser|Disable-LocalUser)', re.I)
+FORBIDDEN_PS = re.compile(r'\b(Remove-Item|rm\b|del\b|Format-Volume|Clear-Disk|Restart-Computer|Stop-Computer|Shutdown|Add-LocalGroupMember|Set-LocalUser|Disable-LocalUser)', re.I)
 
 CREATE_NO_WINDOW = 0x08000000
 

@@ -352,53 +352,54 @@ def _listen_with_oww_pause(gui, timeout=2):
 
 def main_loop(gui):
     time.sleep(1)
-    idle_count = 0
     if is_oww_available():
         start_oww_listener()
     
     while gui.running:
-        if WAKE_EVENT.is_set():
-            WAKE_EVENT.clear()
-            log_command("Wake word detected!")
-            gui.root.after(0, lambda: gui.show_gui_from_bg(should_activate=False))
-            gui.awake = True
-            gui.set_status("wake")
-            
-            idle_count = 0
-            # Quick check for immediate command
-            cmd = _listen_with_oww_pause(gui, timeout=1)
-            if not cmd:
-                speak("I'm listening", gui)
-                cmd = _listen_with_oww_pause(gui, timeout=4)
-            
-            if cmd:
-                from jarvis.commands import handle_cmd
-                handle_cmd(cmd, gui)
-            continue
+        try:
+            if WAKE_EVENT.is_set():
+                WAKE_EVENT.clear()
+                log_command("Wake word detected!")
+                gui.root.after(0, lambda: gui.show_gui_from_bg(should_activate=False))
+                gui.awake = True
+                gui.set_status("wake")
+                
+                cmd = _listen_with_oww_pause(gui, timeout=1)
+                if not cmd:
+                    speak("I'm listening", gui)
+                    cmd = _listen_with_oww_pause(gui, timeout=4)
+                
+                if cmd:
+                    from jarvis.commands import handle_cmd
+                    handle_cmd(cmd, gui)
+                continue
 
-        if not gui.awake:
-            if not is_oww_available():
-                result = listen_for_wake()
-                if result:
-                    gui.activate(has_cmd=isinstance(result, str))
-                    if isinstance(result, str):
-                        from jarvis.commands import handle_cmd
-                        handle_cmd(result, gui)
-            time.sleep(0.1)
-        else:
-            cmd = _listen_with_oww_pause(gui, timeout=3)
-            if cmd:
-                from jarvis.commands import handle_cmd
-                handle_cmd(cmd, gui)
-                idle_count = 0
-                gui.set_status("listening")
+            if not gui.awake:
+                if not is_oww_available():
+                    result = listen_for_wake()
+                    if result:
+                        gui.activate(has_cmd=isinstance(result, str))
+                        if isinstance(result, str):
+                            from jarvis.commands import handle_cmd
+                            handle_cmd(result, gui)
+                time.sleep(0.1)
             else:
-                idle_count += 1
-                if idle_count > 10: # Stay awake for about 30 seconds of silence
-                    gui.deactivate()
-                    idle_count = 0
+                cmd = _listen_with_oww_pause(gui, timeout=3)
+                if cmd:
+                    from jarvis.commands import handle_cmd
+                    handle_cmd(cmd, gui)
+                    gui.set_status("listening")
                 else:
-                    time.sleep(0.1)
+                    for _ in range(10):
+                        if not gui.running:
+                            return
+                        if WAKE_EVENT.is_set():
+                            break
+                        time.sleep(0.1)
+                    gui.deactivate()
+        except Exception as e:
+            log_command(f"Main loop crash: {e}")
+            time.sleep(2)
 
 def run_background_listener():
     from jarvis.speech import _HAVE_OWW, _init_oww

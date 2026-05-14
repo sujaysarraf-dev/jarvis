@@ -162,6 +162,9 @@ def extract_memory(user_cmd, llm_resp, gui):
     except Exception as e:
         log_command(f"Memory Extraction Error: {str(e)}")
 
+_conversation_history = []
+_MAX_HISTORY = 5
+
 def gen_llm(cmd, gui):
     if not ACTIVE_API_KEY:
         speak("Please set your API key in the .env file.", gui)
@@ -175,7 +178,7 @@ def gen_llm(cmd, gui):
             "POWERSHELL\n<valid powershell command>\nENDPS\n<short confirmation>\n"
             "2. For calculations, use powershell (e.g., '27 + 97').\n"
             "3. For volume, use: (New-Object -ComObject WScript.Shell).SendKeys([char]175) for up, 174 for down.\n"
-            "4. For deleting a folder on desktop, use: Remove-Item -Path \"$HOME\\Desktop\\folder_name\" -Recurse -Force\n"
+            "4. For deleting files/folders, always base paths on what the user tells you. Do NOT guess paths. If unsure, ask.\n"
             "5. If no system action is needed, answer in exactly one concise sentence.\n"
             "6. NEVER explain your reasoning. NEVER use XML tags like <tool_call>. ALWAYS use ENDPS.\n"
             "7. Use the user's name if known.\n\n"
@@ -185,10 +188,11 @@ def gen_llm(cmd, gui):
         if user_context:
             sys_prompt += f"\n\nUser Context:\n{user_context}"
 
-        messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": cmd}
-        ]
+        messages = [{"role": "system", "content": sys_prompt}]
+        for user_msg, asst_msg in _conversation_history:
+            messages.append({"role": "user", "content": user_msg})
+            messages.append({"role": "assistant", "content": asst_msg})
+        messages.append({"role": "user", "content": cmd})
 
         res, err = _stream_chat(messages, gui)
 
@@ -209,16 +213,18 @@ def gen_llm(cmd, gui):
 
         log_command(f"LLM: [{cmd}] -> [{res[:100]}]")
 
+        if res:
+            _conversation_history.append((cmd, res))
+            if len(_conversation_history) > _MAX_HISTORY:
+                _conversation_history.pop(0)
+
         if res and len(res) > 1:
-            # Only try command mapping if we DID NOT just run a powershell command
             if "POWERSHELL" not in res.upper():
                 matched = process.extractOne(res.lower(), list(COMMAND_MAP.keys()), scorer=fuzz.token_set_ratio, score_cutoff=85)
                 if matched:
                     import subprocess
                     subprocess.Popen(COMMAND_MAP[matched[0]], shell=True)
                     speak(f"Opening {matched[0]}", gui)
-
-        threading.Thread(target=extract_memory, args=(cmd, res, gui), daemon=True).start()
     except Exception as e:
         log_command(f"LLM Error: {str(e)}")
         threading.Thread(target=speak, args=("I encountered an error connecting to my brain.", gui), daemon=True).start()

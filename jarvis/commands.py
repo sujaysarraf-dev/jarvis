@@ -111,7 +111,7 @@ def handle_cmd(cmd, gui):
         d = datetime.datetime.now().strftime("%A, %B %d, %Y")
         speak(f"Today is {d}", gui)
         return
-    if re.search(r"\b(?:bye\s+jarvis|bye\s+jar|exit\s+jarvis|goodbye|goodbye\s+jarvis|close\s+jarvis|shutdown)\b", cmd):
+    if re.search(r"\b(?:bye\s+jarvis|bye\s+jar|exit\s+jarvis|goodbye|goodbye\s+jarvis|close\s+jarvis)\b", cmd):
         speak("Always a pleasure. Shutting down systems now.", gui)
         gui.close()
         return
