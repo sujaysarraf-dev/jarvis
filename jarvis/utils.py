@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import datetime
 import subprocess
 from jarvis.config import CREATE_NO_WINDOW, HISTORY_FILE, BASE_DIR, FORBIDDEN_PS
@@ -67,6 +68,9 @@ def _run_ps(ps_cmd):
         if r.returncode != 0:
             err = r.stderr.strip()[:200] if r.stderr.strip() else f"exit code {r.returncode}"
             log_command(f"PS fail: {err} | cmd: {ps_cmd[:100]}")
+            if _needs_admin(err):
+                log_command("Retrying PS command elevated...")
+                return _run_ps_elevated(ps_cmd)
             return False, err
         out = r.stdout.strip()[:200] if r.stdout.strip() else ""
         return True, out
@@ -76,6 +80,43 @@ def _run_ps(ps_cmd):
     except Exception as e:
         log_command(f"PS error: {e} | cmd: {ps_cmd[:100]}")
         return False, str(e)[:100]
+
+def _needs_admin(err):
+    kw = ['permission', 'denied', 'generic failure', 'admin', 'elevated',
+          'access denied', 'privilege', 'unauthorized']
+    return any(k in err.lower() for k in kw)
+
+def _run_ps_elevated(ps_cmd):
+    import tempfile, os, time
+    stamp = str(int(time.time()))
+    tmp = tempfile.gettempdir()
+    script = os.path.join(tmp, f"jarvis_elevated_{stamp}.ps1")
+    outf = os.path.join(tmp, f"jarvis_out_{stamp}.txt")
+    try:
+        with open(script, "w") as f:
+            f.write(f'Try {{ {ps_cmd} }} Catch {{ $__e = $_; \"ERR: $__e\" }} | Out-File -FilePath \"{outf}\" -Encoding UTF8\n')
+        ps_code = f'Start-Process powershell -Verb RunAs -ArgumentList \'-NoProfile -File "{script}"\' -WindowStyle Hidden -Wait'
+        subprocess.run(['powershell', '-NoProfile', '-Command', ps_code],
+                      shell=False, creationflags=CREATE_NO_WINDOW, timeout=60)
+        for _ in range(30):
+            if os.path.exists(outf):
+                break
+            time.sleep(0.5)
+        if os.path.exists(outf):
+            with open(outf, 'r', encoding='utf-8') as f:
+                result = f.read().strip()
+            os.remove(outf)
+            return True, result[:200] if result else ""
+        return False, "elevated command failed"
+    except Exception as e:
+        return False, f"elevate error: {str(e)[:60]}"
+    finally:
+        for f in [script, outf]:
+            try:
+                if os.path.exists(f):
+                    os.remove(f)
+            except:
+                pass
 
 def _is_useless_response(text):
     stripped = re.sub(r'[^\w\s]', '', text).strip().lower()
