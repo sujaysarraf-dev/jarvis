@@ -1,10 +1,53 @@
 import re
 import threading
+import subprocess
 from rapidfuzz import fuzz
-from jarvis.config import VISION_PATTERNS
+from jarvis.config import VISION_PATTERNS, COMMAND_MAP, CLOSE_MAP, PREFIXES, FUZZY_SCORE, CREATE_NO_WINDOW
 from jarvis.memory import memory
 from jarvis.speech import speak
 from jarvis.utils import log_command
+
+def _fuzzy_find(cmd):
+    parts = cmd.split()
+    for i, word in enumerate(parts):
+        if word in PREFIXES:
+            remainder = " ".join(parts[i+1:])
+            log_command(f"  prefix match: [{word}] remainder=[{remainder}]")
+            if remainder in COMMAND_MAP:
+                return COMMAND_MAP[remainder]
+            scores = sorted(
+                ((k, fuzz.WRatio(remainder, k)) for k in COMMAND_MAP),
+                key=lambda x: x[1], reverse=True
+            )
+            if scores and scores[0][1] >= FUZZY_SCORE:
+                log_command(f"  fuzzy app: [{scores[0][0]}] score={scores[0][1]}")
+                return COMMAND_MAP[scores[0][0]]
+            return None
+    if cmd in COMMAND_MAP:
+        log_command(f"  exact match: [{COMMAND_MAP[cmd]}] via [{cmd}]")
+        return COMMAND_MAP[cmd]
+    scores = sorted(
+        ((k, fuzz.WRatio(cmd, k)) for k in COMMAND_MAP),
+        key=lambda x: x[1], reverse=True
+    )
+    if scores and scores[0][1] >= FUZZY_SCORE:
+        log_command(f"  fuzzy match: [{scores[0][0]}] score={scores[0][1]}")
+        return COMMAND_MAP[scores[0][0]]
+    return None
+
+def _fuzzy_find_close(cmd):
+    for phrase, proc in CLOSE_MAP.items():
+        if phrase in cmd:
+            log_command(f"  close match: [{phrase}] -> [{proc}]")
+            return proc
+    scores = sorted(
+        ((k, fuzz.WRatio(cmd, k)) for k in CLOSE_MAP),
+        key=lambda x: x[1], reverse=True
+    )
+    if scores and scores[0][1] >= FUZZY_SCORE:
+        log_command(f"  close fuzzy: [{scores[0][0]}] score={scores[0][1]}")
+        return CLOSE_MAP[scores[0][0]]
+    return None
 
 def handle_cmd(cmd, gui):
     cmd = cmd.lower().strip()
@@ -71,6 +114,24 @@ def handle_cmd(cmd, gui):
         from jarvis.llm import ask_vision
         threading.Thread(target=ask_vision, args=(cmd, gui), daemon=True).start()
         return
+
+    # Open/close via hardcoded maps (reliable)
+    if any(cmd.startswith(p) for p in PREFIXES) or cmd in COMMAND_MAP:
+        app = _fuzzy_find(cmd)
+        if app:
+            log_command(f"Opening: {app}")
+            subprocess.Popen(app, shell=True, creationflags=CREATE_NO_WINDOW)
+            speak("Opening.", gui)
+            return
+
+    if "close " in cmd or "kill " in cmd:
+        proc = _fuzzy_find_close(cmd)
+        if proc:
+            log_command(f"Closing: {proc}")
+            subprocess.run(['powershell', '-NoProfile', f'Stop-Process -Name {proc} -Force'],
+                          shell=False, creationflags=CREATE_NO_WINDOW, timeout=10)
+            speak("Closed.", gui)
+            return
 
     from jarvis.llm import gen_llm
     threading.Thread(target=gen_llm, args=(cmd, gui), daemon=True).start()
