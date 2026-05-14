@@ -22,18 +22,24 @@ if GROQ_API_KEY:
     ACTIVE_API_KEY = GROQ_API_KEY
     ACTIVE_API_URL = GROQ_URL
     ACTIVE_MODEL = GROQ_MODEL
+    FALLBACK_MODELS = [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "meta-llama/llama-4-scout-17b-16e-instruct",
+        "qwen/qwen3-32b",
+        "allam-2-7b",
+    ]
 else:
     ACTIVE_API_KEY = OPENROUTER_API_KEY
     ACTIVE_API_URL = OPENROUTER_URL
     ACTIVE_MODEL = OPENROUTER_MODEL
-
-OPENROUTER_FALLBACK_MODELS = [
-    "openrouter/free",
-    "gryphe/mythomax-l2-13b:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "google/gemma-2-2b-it:free",
-    "microsoft/phi-3-mini-128k-instruct:free",
-]
+    FALLBACK_MODELS = [
+        "openrouter/free",
+        "gryphe/mythomax-l2-13b:free",
+        "meta-llama/llama-3.2-3b-instruct:free",
+        "google/gemma-2-2b-it:free",
+        "microsoft/phi-3-mini-128k-instruct:free",
+    ]
 
 if GROQ_API_KEY:
     VISION_API_KEY = GROQ_API_KEY

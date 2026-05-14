@@ -6,7 +6,7 @@ import threading
 import requests
 from jarvis.config import (
     ACTIVE_API_URL, ACTIVE_API_KEY, ACTIVE_MODEL,
-    OPENROUTER_TIMEOUT, OPENROUTER_FALLBACK_MODELS,
+    OPENROUTER_TIMEOUT, FALLBACK_MODELS,
     VISION_MODEL, VISION_URL, VISION_API_KEY, VISION_TIMEOUT
 )
 from jarvis.memory import memory
@@ -98,7 +98,7 @@ def _stream_chat(messages, gui, max_tokens=150, temperature=0.05, timeout=None):
     with _last_working_lock:
         preferred = _last_working_model
     
-    fallback_list = OPENROUTER_FALLBACK_MODELS if OPENROUTER_FALLBACK_MODELS is not None else [ACTIVE_MODEL]
+    fallback_list = FALLBACK_MODELS if FALLBACK_MODELS is not None else [ACTIVE_MODEL]
     if ACTIVE_MODEL not in fallback_list:
         fallback_list.insert(0, ACTIVE_MODEL)
     
@@ -121,13 +121,15 @@ def _stream_chat(messages, gui, max_tokens=150, temperature=0.05, timeout=None):
                 
                 log_command(f"LLM fail {model} attempt {attempt}: {err}")
                 if "rate_limit" in str(err).lower():
-                    time.sleep(2 * (attempt + 1))
+                    wait = 5 * (attempt + 1)
+                    log_command(f"Rate limited, waiting {wait}s...")
+                    time.sleep(wait)
                     continue
                 if "timeout" in str(err).lower() or "connection" in str(err).lower():
-                    time.sleep(1)
+                    time.sleep(2)
                     continue
                 if "HTTP 5" in str(err):
-                    time.sleep(2)
+                    time.sleep(3)
                     continue
                 break # Other errors don't retry same model
             except Exception as e:
