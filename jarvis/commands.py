@@ -7,7 +7,8 @@ import urllib.parse
 import json
 import threading
 from rapidfuzz import fuzz, process
-from jarvis.config import COMMAND_MAP, KNOWN_ACTIONS, PREFIXES, FUZZY_SCORE, BASE_DIR, DATA_FOLDER, SS_FOLDER
+from jarvis.config import COMMAND_MAP, KNOWN_ACTIONS, PREFIXES, FUZZY_SCORE, BASE_DIR, DATA_FOLDER, SS_FOLDER, CLOSE_MAP
+import random
 from jarvis.memory import memory
 from jarvis.speech import speak
 from jarvis.utils import log_command
@@ -85,6 +86,10 @@ def handle_cmd(cmd, gui):
     gui.add_transcript("You", cmd)
     gui.set_status("processing", f"You said: {cmd}")
     log_command(cmd)
+    
+    # Echo filter: ignore phrases that sound like Jarvis's own feedback
+    if cmd in ["i am listen", "i am listening", "listening", "i'm listening"]:
+        return
 
     if gui.last_spoken and len(cmd) > 5:
         ratio = fuzz.ratio(cmd, gui.last_spoken[:80].lower())
@@ -100,16 +105,33 @@ def handle_cmd(cmd, gui):
         d = datetime.datetime.now().strftime("%A, %B %d, %Y")
         speak(f"Today is {d}", gui)
         return
-    if re.search(r"\b(?:bye\s+jarvis|exit\s+jarvis|goodbye)\b", cmd):
-        speak("Goodbye", gui)
+    if re.search(r"\b(?:bye\s+jarvis|bye\s+jar|exit\s+jarvis|goodbye|goodbye\s+jarvis|close\s+jarvis)\b", cmd):
+        speak("Always a pleasure. Shutting down systems now.", gui)
         gui.close()
         return
-    if re.search(r'\b(?:deactivate|go to sleep|exit)\b', cmd):
-        speak("Going to sleep", gui)
+
+    close_match = re.search(r"^(?:close|stop|exit|terminate)\s+(.+)", cmd)
+    if close_match:
+        app = close_match.group(1).strip()
+        if app in CLOSE_MAP:
+            proc = CLOSE_MAP[app]
+            subprocess.run(f"taskkill /F /IM {proc}", shell=True, capture_output=True)
+            speak(f"Terminating {app} process.", gui)
+            return
+        # Try fuzzy match for close
+        result = process.extractOne(app, list(CLOSE_MAP.keys()), scorer=fuzz.token_sort_ratio, score_cutoff=FUZZY_SCORE)
+        if result:
+            proc = CLOSE_MAP[result[0]]
+            subprocess.run(f"taskkill /F /IM {proc}", shell=True, capture_output=True)
+            speak(f"Closing {result[0]} as requested.", gui)
+            return
+
+    if re.search(r'\b(?:deactivate|go to sleep|exit)\b', cmd) and len(cmd.split()) < 4:
+        speak("Entering standby mode.", gui)
         gui.deactivate()
         return
-    if re.search(r'\b(?:stop|sleep|bye|quit)\b', cmd) and not re.search(r'\b(?:stopwatch|stop the music|stop playing|stopwatch|stopped|stopping|storage|sleeping)\b', cmd):
-        speak("Going to sleep", gui)
+    if re.search(r'\b(?:stop|sleep|bye|quit)\b', cmd) and len(cmd.split()) < 3 and not re.search(r'\b(?:stopwatch|stop the music|stop playing|stopwatch|stopped|stopping|storage|sleeping)\b', cmd):
+        speak("Systems entering sleep cycle.", gui)
         gui.deactivate()
         return
 
@@ -133,6 +155,35 @@ def handle_cmd(cmd, gui):
     if site:
         subprocess.Popen(f"start https://{site.group(1)}", shell=True)
         speak(f"Opening {site.group(1)}", gui)
+        return
+
+    search = re.search(r"(?:google|search for|look up)\s+(.+)", cmd)
+    if search:
+        query = search.group(1).strip()
+        url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+        subprocess.Popen(f"start {url}", shell=True)
+        speak(f"Searching for {query}", gui)
+        return
+
+    if "joke" in cmd:
+        jokes = [
+            "Why did the web developer walk out of a restaurant? Because of the table layout.",
+            "How many programmers does it take to change a light bulb? None, it's a hardware problem.",
+            "What's the object-oriented way to become wealthy? Inheritance.",
+            "Why do programmers always mix up Halloween and Christmas? Because Oct 31 == Dec 25.",
+            "An SQL query walks into a bar, walks up to two tables, and asks... 'Can I join you?'"
+        ]
+        speak(random.choice(jokes), gui)
+        return
+
+    if "flip a coin" in cmd or "toss a coin" in cmd:
+        res = random.choice(["Heads", "Tails"])
+        speak(f"It's {res}", gui)
+        return
+
+    if "roll a die" in cmd or "roll a dice" in cmd:
+        res = random.randint(1, 6)
+        speak(f"You rolled a {res}", gui)
         return
 
     if "how much ram" in cmd or "system info" in cmd or "specs" in cmd or "battery" in cmd or "storage" in cmd:

@@ -52,6 +52,25 @@ COMMAND_MAP = {
     "file explorer": "explorer", "explorer": "explorer",
     "notepad++": "start notepad++", "calculator app": "calc",
 }
+CLOSE_MAP = {
+    "browser": "chrome.exe", "chrome": "chrome.exe", "google chrome": "chrome.exe",
+    "edge": "msedge.exe", "microsoft edge": "msedge.exe",
+    "firefox": "firefox.exe",
+    "notepad": "notepad.exe", "notes": "notepad.exe",
+    "calculator": "CalculatorApp.exe", "calc": "CalculatorApp.exe",
+    "terminal": "cmd.exe", "cmd": "cmd.exe", "powershell": "powershell.exe",
+    "paint": "mspaint.exe",
+    "word": "winword.exe",
+    "excel": "excel.exe",
+    "powerpoint": "powerpnt.exe",
+    "spotify": "Spotify.exe",
+    "discord": "Discord.exe",
+    "vscode": "Code.exe", "vs code": "Code.exe", "code": "Code.exe",
+    "whatsapp": "WhatsApp.exe",
+    "telegram": "Telegram.exe",
+    "task manager": "taskmgr.exe",
+    "explorer": "explorer.exe", "file explorer": "explorer.exe",
+}
 
 KNOWN_ACTIONS = [
     ("show desktop", lambda: subprocess.Popen(['powershell', '-Command', '(New-Object -ComObject Shell.Application).ToggleDesktop()']), ["show desktop", "minimize all windows", "show windows", "close all windows"]),

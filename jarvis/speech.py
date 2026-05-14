@@ -27,66 +27,92 @@ except:
     _HAVE_GTTS = False
 
 _HAVE_OWW = False
-_oww_model = None
+_OWW_MODEL = None
 _oww_thread = None
 _oww_running = False
-_oww_pyaudio = None
 _oww_stream = None
+_oww_pyaudio = None
+INTERRUPT_EVENT = threading.Event()
 try:
-    from openwakeword.model import Model
-    _OWW_MODEL = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+    from openwakeword.model import Model as _OWWModelClass
+    _OWW_MODEL_CLASS = _OWWModelClass
     _HAVE_OWW = True
 except Exception:
-    log_command("OpenWakeWord not available, falling back to cloud STT")
+    _OWW_MODEL_CLASS = None
+    _HAVE_OWW = False
 
 _recognizer = sr.Recognizer()
+
+_oww_init_lock = threading.Lock()
+
+def _init_oww():
+    global _OWW_MODEL
+    if _OWW_MODEL is not None:
+        return True
+    with _oww_init_lock:
+        if _OWW_MODEL is not None:
+            return True
+        try:
+            _OWW_MODEL = _OWW_MODEL_CLASS(wakeword_models=["hey_jarvis"], inference_framework="onnx")
+            return True
+        except Exception as e:
+            log_command(f"OpenWakeWord init failed: {e}")
+            return False
 
 def speak(text, gui, add_transcript=True):
     if not text:
         return
+    # Pause wake word listener while speaking
+    pause_oww()
+    
+    # Wait for any previous speech to finish
     with SPEAK_LOCK:
         gui.last_spoken = text[:200]
         if add_transcript:
-            gui.add_transcript("Jarvis", text[:200])
+            gui.add_transcript("Jarvis", text)
+        
         gui.set_status("speaking", text[:100])
-        speech_file = os.path.join(BASE_DIR, "jarvis_speech.mp3")
+        speech_file = os.path.join(BASE_DIR, f"jarvis_speech_{int(time.time())}.mp3")
         spoken = False
+        
         if _HAVE_GTTS and _HAVE_PYGAME:
-            gtts_ok = [False]
-            def do_gtts():
-                try:
-                    tts = gTTS(text=text, lang="en", tld="com", slow=False)
-                    tts.save(speech_file)
-                    gtts_ok[0] = True
-                except:
-                    pass
-            t = threading.Thread(target=do_gtts, daemon=True)
-            t.start()
-            t.join(8)
-            if gtts_ok[0]:
-                try:
-                    pygame.mixer.music.load(speech_file)
-                    pygame.mixer.music.play()
-                    while pygame.mixer.music.get_busy():
-                        time.sleep(0.1)
-                    pygame.mixer.music.unload()
-                    spoken = True
-                except:
-                    pass
-            if os.path.exists(speech_file):
-                try:
-                    os.remove(speech_file)
-                except:
-                    pass
-        if not spoken:
+            try:
+                tts = gTTS(text=text, lang="en", tld="com", slow=False)
+                tts.save(speech_file)
+                pygame.mixer.music.load(speech_file)
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    if INTERRUPT_EVENT.is_set():
+                        pygame.mixer.music.stop()
+                        INTERRUPT_EVENT.clear()
+                        break
+                    time.sleep(0.05)
+                pygame.mixer.music.unload()
+                spoken = True
+            except Exception as e:
+                log_command(f"Speech (gTTS) failed: {e}")
+            finally:
+                if os.path.exists(speech_file):
+                    try: os.remove(speech_file)
+                    except: pass
+        
+        if not spoken and not INTERRUPT_EVENT.is_set():
             try:
                 import win32com.client
                 sp = win32com.client.Dispatch("SAPI.SpVoice")
                 sp.Speak(text, 0)
-            except:
-                pass
-        if gui.awake:
-            gui.set_status("listening")
+                spoken = True
+            except: pass
+            
+        INTERRUPT_EVENT.clear()
+        
+        # Don't immediately switch back to listening if we're in the middle of a command flow
+        # The main_loop will handle the transition back to listening or idle
+    
+    # Wait a moment for audio to settle
+    time.sleep(0.3)
+    WAKE_EVENT.clear()
+    resume_oww()
 
 def is_oww_available():
     return _HAVE_OWW
@@ -95,68 +121,70 @@ def start_oww_listener():
     global _oww_thread, _oww_running
     if not _HAVE_OWW or _oww_running:
         return
+    if not _init_oww():
+        return
     _oww_running = True
     _oww_thread = threading.Thread(target=_oww_listen_loop, daemon=True)
     _oww_thread.start()
 
-def stop_oww_listener():
-    global _oww_running, _oww_stream, _oww_pyaudio
-    _oww_running = False
+_oww_paused = False
+
+def pause_oww():
+    global _oww_paused, _oww_stream
+    _oww_paused = True
+    time.sleep(0.05)
     if _oww_stream:
         try:
             _oww_stream.close()
         except:
             pass
         _oww_stream = None
-    if _oww_pyaudio:
-        try:
-            _oww_pyaudio.terminate()
-        except:
-            pass
-        _oww_pyaudio = None
 
-def restart_oww_listener():
-    stop_oww_listener()
-    time.sleep(0.3)
-    start_oww_listener()
+def resume_oww():
+    global _oww_paused
+    _oww_paused = False
 
 def _oww_listen_loop():
     global _oww_stream, _oww_pyaudio
     import pyaudio
-    try:
-        _oww_pyaudio = pyaudio.PyAudio()
-        _oww_stream = _oww_pyaudio.open(
-            format=pyaudio.paInt16, channels=1, rate=16000,
-            input=True, frames_per_buffer=1280,
-            stream_callback=None
-        )
-        _oww_stream.start_stream()
-        while _oww_running:
-            try:
-                chunk = _oww_stream.read(1280, exception_on_overflow=False)
-                audio = np.frombuffer(chunk, dtype=np.int16)
-                pred = _OWW_MODEL.predict(audio)
-                if pred.get("hey_jarvis", 0) > 0.5:
-                    WAKE_EVENT.set()
-            except:
-                time.sleep(0.01)
-    except:
-        pass
-    finally:
-        if _oww_stream:
-            try:
-                _oww_stream.close()
-            except:
-                pass
-            _oww_stream = None
-        if _oww_pyaudio:
-            try:
-                _oww_pyaudio.terminate()
-            except:
-                pass
-            _oww_pyaudio = None
+    _oww_pyaudio = pyaudio.PyAudio()
+    buf = []
+    while True:
+        try:
+            if _oww_paused:
+                time.sleep(0.1)
+                buf = []
+                continue
+            if _oww_stream is None:
+                _oww_stream = _oww_pyaudio.open(
+                    format=pyaudio.paInt16, channels=1, rate=16000,
+                    input=True, frames_per_buffer=1280
+                )
+            chunk = _oww_stream.read(1280, exception_on_overflow=False)
+            buf.append(np.frombuffer(chunk, dtype=np.int16))
+            if len(buf) < 5:
+                time.sleep(0.005)
+                continue
+            audio = np.concatenate(buf)
+            buf = []
+            pred = _OWW_MODEL.predict(audio)
+            if pred.get("hey_jarvis", 0) > 0.6:
+                INTERRUPT_EVENT.set()
+                WAKE_EVENT.set()
+        except Exception:
+            if _oww_stream:
+                try:
+                    _oww_stream.close()
+                except:
+                    pass
+                _oww_stream = None
+            buf = []
+            time.sleep(0.2)
 
 def listen_for_wake():
+    # Wait for speech to finish if any
+    with SPEAK_LOCK:
+        pass
     try:
         with sr.Microphone() as src:
             _recognizer.adjust_for_ambient_noise(src, duration=0.3)
@@ -175,6 +203,9 @@ def listen_for_wake():
     return False
 
 def listen_for_cmd(gui, timeout=2):
+    # Wait for speech to finish if any
+    with SPEAK_LOCK:
+        pass
     try:
         with sr.Microphone() as src:
             _recognizer.adjust_for_ambient_noise(src, duration=0.3)
