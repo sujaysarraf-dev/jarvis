@@ -13,6 +13,18 @@ MIC_LOCK = threading.Lock()
 
 warnings.filterwarnings("ignore", category=UserWarning, module="pygame")
 
+try:
+    import pygame
+    _HAVE_PYGAME = True
+except:
+    _HAVE_PYGAME = False
+
+try:
+    from gtts import gTTS
+    _HAVE_GTTS = True
+except:
+    _HAVE_GTTS = False
+
 _HAVE_OWW = False
 _OWW_MODEL = None
 _oww_thread = None
@@ -57,13 +69,39 @@ def speak(text, gui, add_transcript=True):
             gui.add_transcript("Jarvis", text)
         
         gui.set_status("speaking", text[:100])
+        speech_file = os.path.join(BASE_DIR, f"jarvis_speech_{int(time.time())}.mp3")
+        spoken = False
         
-        try:
-            import win32com.client
-            sp = win32com.client.Dispatch("SAPI.SpVoice")
-            sp.Speak(text, 0)
-        except Exception as e:
-            log_command(f"Speech failed: {e}")
+        if _HAVE_GTTS and _HAVE_PYGAME:
+            try:
+                pygame.mixer.init()
+                tts = gTTS(text=text, lang="en", tld="com", slow=False)
+                tts.save(speech_file)
+                pygame.mixer.music.load(speech_file)
+                pygame.mixer.music.play()
+                while pygame.mixer.music.get_busy():
+                    if INTERRUPT_EVENT.is_set():
+                        pygame.mixer.music.stop()
+                        INTERRUPT_EVENT.clear()
+                        break
+                    time.sleep(0.05)
+                pygame.mixer.music.unload()
+                spoken = True
+            except Exception as e:
+                log_command(f"gTTS failed: {e}")
+            finally:
+                if os.path.exists(speech_file):
+                    try: os.remove(speech_file)
+                    except: pass
+        
+        if not spoken and not INTERRUPT_EVENT.is_set():
+            try:
+                import win32com.client
+                sp = win32com.client.Dispatch("SAPI.SpVoice")
+                sp.Speak(text, 0)
+                spoken = True
+            except Exception as e:
+                log_command(f"SAPI failed: {e}")
             
         INTERRUPT_EVENT.clear()
         time.sleep(0.4)
