@@ -90,19 +90,24 @@ def speak(text, gui, add_transcript=True):
                 pygame.mixer.music.unload()
                 spoken = True
             except Exception as e:
-                log_command(f"Speech (gTTS) failed: {e}")
+                log_command(f"gTTS speech failed: {e}")
             finally:
                 if os.path.exists(speech_file):
                     try: os.remove(speech_file)
                     except: pass
+                if _HAVE_PYGAME:
+                    pygame.mixer.quit()
         
         if not spoken and not INTERRUPT_EVENT.is_set():
             try:
+                if _HAVE_PYGAME:
+                    pygame.mixer.quit()
                 import win32com.client
                 sp = win32com.client.Dispatch("SAPI.SpVoice")
-                sp.Speak(text, 0)
+                sp.Speak(text, 1)
                 spoken = True
-            except: pass
+            except Exception as e:
+                log_command(f"SAPI speech failed: {e}")
             
         INTERRUPT_EVENT.clear()
         
