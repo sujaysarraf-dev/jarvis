@@ -62,78 +62,79 @@ def _init_oww():
 def speak(text, gui, add_transcript=True):
     if not text:
         return
-    pause_oww()
-    
-    with SPEAK_LOCK:
-        gui.last_spoken = text[:200]
-        if add_transcript:
-            gui.add_transcript("Jarvis", text)
+    with MIC_LOCK:
+        pause_oww()
         
-        gui.set_status("speaking", text[:100])
-        speech_file = os.path.join(BASE_DIR, f"jarvis_speech_{int(time.time())}.mp3")
-        spoken = False
-        
-        if _HAVE_GTTS:
-            for attempt in range(3):
-                try:
-                    tts = gTTS(text=text, lang="en", tld="com", slow=False)
-                    tts.save(speech_file)
-                    break
-                except Exception as e:
-                    log_command(f"gTTS attempt {attempt+1} failed: {e}")
-                    time.sleep(0.5)
-            else:
-                speech_file = None
-
-        if speech_file and os.path.exists(speech_file):
-            try:
-                import ctypes
-                res = ctypes.windll.winmm.mciSendStringW(f'open "{speech_file}" alias speech', None, 0, 0)
-                if res == 0:
-                    ctypes.windll.winmm.mciSendStringW('play speech wait', None, 0, 0)
-                    ctypes.windll.winmm.mciSendStringW('close speech', None, 0, 0)
-                    spoken = True
-                else:
-                    log_command(f"MCI open failed: {res}")
-            except Exception as e:
-                log_command(f"MCI playback failed: {e}")
-
-        if not spoken and speech_file and os.path.exists(speech_file) and _HAVE_PYGAME:
-            try:
-                pygame.mixer.init()
-                pygame.mixer.music.load(speech_file)
-                pygame.mixer.music.play()
-                while pygame.mixer.music.get_busy():
-                    if INTERRUPT_EVENT.is_set():
-                        pygame.mixer.music.stop()
-                        INTERRUPT_EVENT.clear()
-                        break
-                    time.sleep(0.05)
-                pygame.mixer.music.unload()
-                spoken = True
-            except Exception as e:
-                log_command(f"pygame failed: {e}")
-        
-        if speech_file and os.path.exists(speech_file):
-            try: os.remove(speech_file)
-            except: pass
-        
-        if not spoken and not INTERRUPT_EVENT.is_set():
-            try:
-                import win32com.client
-                sp = win32com.client.Dispatch("SAPI.SpVoice")
-                sp.Speak(text, 0)
-                spoken = True
-            except Exception as e:
-                log_command(f"SAPI failed: {e}")
+        with SPEAK_LOCK:
+            gui.last_spoken = text[:200]
+            if add_transcript:
+                gui.add_transcript("Jarvis", text)
             
-        INTERRUPT_EVENT.clear()
+            gui.set_status("speaking", text[:100])
+            speech_file = os.path.join(BASE_DIR, f"jarvis_speech_{int(time.time())}.mp3")
+            spoken = False
+            
+            if _HAVE_GTTS:
+                for attempt in range(3):
+                    try:
+                        tts = gTTS(text=text, lang="en", tld="com", slow=False)
+                        tts.save(speech_file)
+                        break
+                    except Exception as e:
+                        log_command(f"gTTS attempt {attempt+1} failed: {e}")
+                        time.sleep(0.5)
+                else:
+                    speech_file = None
+
+            if speech_file and os.path.exists(speech_file):
+                try:
+                    import ctypes
+                    res = ctypes.windll.winmm.mciSendStringW(f'open "{speech_file}" alias speech', None, 0, 0)
+                    if res == 0:
+                        ctypes.windll.winmm.mciSendStringW('play speech wait', None, 0, 0)
+                        ctypes.windll.winmm.mciSendStringW('close speech', None, 0, 0)
+                        spoken = True
+                    else:
+                        log_command(f"MCI open failed: {res}")
+                except Exception as e:
+                    log_command(f"MCI playback failed: {e}")
+
+            if not spoken and speech_file and os.path.exists(speech_file) and _HAVE_PYGAME:
+                try:
+                    pygame.mixer.init()
+                    pygame.mixer.music.load(speech_file)
+                    pygame.mixer.music.play()
+                    while pygame.mixer.music.get_busy():
+                        if INTERRUPT_EVENT.is_set():
+                            pygame.mixer.music.stop()
+                            INTERRUPT_EVENT.clear()
+                            break
+                        time.sleep(0.05)
+                    pygame.mixer.music.unload()
+                    spoken = True
+                except Exception as e:
+                    log_command(f"pygame failed: {e}")
+            
+            if speech_file and os.path.exists(speech_file):
+                try: os.remove(speech_file)
+                except: pass
+            
+            if not spoken and not INTERRUPT_EVENT.is_set():
+                try:
+                    import win32com.client
+                    sp = win32com.client.Dispatch("SAPI.SpVoice")
+                    sp.Speak(text, 0)
+                    spoken = True
+                except Exception as e:
+                    log_command(f"SAPI failed: {e}")
+                
+            INTERRUPT_EVENT.clear()
+            time.sleep(0.4)
+            WAKE_EVENT.clear()
+        
         time.sleep(0.4)
         WAKE_EVENT.clear()
-    
-    time.sleep(0.4)
-    WAKE_EVENT.clear()
-    resume_oww()
+        resume_oww()
 
 def is_oww_available():
     return _HAVE_OWW
@@ -151,7 +152,7 @@ def start_oww_listener():
 _oww_paused = False
 
 def pause_oww():
-    global _oww_paused, _oww_stream
+    global _oww_paused, _oww_stream, _oww_pyaudio
     _oww_paused = True
     time.sleep(0.05)
     if _oww_stream:
@@ -160,6 +161,13 @@ def pause_oww():
         except:
             pass
         _oww_stream = None
+    if _oww_pyaudio:
+        try:
+            _oww_pyaudio.terminate()
+        except:
+            pass
+        _oww_pyaudio = None
+    time.sleep(0.15)
 
 def resume_oww():
     global _oww_paused
@@ -172,29 +180,31 @@ def _oww_listen_loop():
     import pyaudio
     _oww_pyaudio = pyaudio.PyAudio()
     _oww_thread_alive = True
-    buf = []
+    consecutive_errors = 0
     while True:
         try:
             if _oww_paused:
                 time.sleep(0.1)
-                buf = []
+                consecutive_errors = 0
                 continue
             if _oww_stream is None:
+                if _oww_pyaudio is None:
+                    _oww_pyaudio = pyaudio.PyAudio()
                 _oww_stream = _oww_pyaudio.open(
                     format=pyaudio.paInt16, channels=1, rate=16000,
                     input=True, frames_per_buffer=1280
                 )
             chunk = _oww_stream.read(1280, exception_on_overflow=False)
-            buf.append(np.frombuffer(chunk, dtype=np.int16))
-            if len(buf) < 5:
-                time.sleep(0.005)
-                continue
+            buf = [np.frombuffer(chunk, dtype=np.int16)]
+            for _ in range(4):
+                c = _oww_stream.read(1280, exception_on_overflow=False)
+                buf.append(np.frombuffer(c, dtype=np.int16))
             audio = np.concatenate(buf)
-            buf = []
             pred = _OWW_MODEL.predict(audio)
             if pred.get("hey_jarvis", 0) > 0.6:
                 INTERRUPT_EVENT.set()
                 WAKE_EVENT.set()
+            consecutive_errors = 0
         except Exception as e:
             log_command(f"OWW listener error: {e}")
             if _oww_stream:
@@ -203,30 +213,38 @@ def _oww_listen_loop():
                 except:
                     pass
                 _oww_stream = None
-            buf = []
-            time.sleep(0.2)
-    _oww_thread_alive = False
-    log_command("OWW listener thread stopped")
+            if _oww_pyaudio:
+                try:
+                    _oww_pyaudio.terminate()
+                except:
+                    pass
+                _oww_pyaudio = None
+            consecutive_errors += 1
+            sleep_time = min(consecutive_errors * 0.5, 3.0)
+            _oww_thread_alive = False
+            time.sleep(sleep_time)
+            _oww_thread_alive = True
 
 def listen_for_wake():
-    # Wait for speech to finish if any
     with SPEAK_LOCK:
         pass
-    try:
-        with sr.Microphone() as src:
-            _recognizer.adjust_for_ambient_noise(src, duration=0.3)
-            audio = _recognizer.listen(src, timeout=3, phrase_time_limit=5)
-        text = _recognizer.recognize_google(audio)
-        if text and WAKE_WORD in text.lower():
-            idx = text.lower().index(WAKE_WORD) + len(WAKE_WORD)
-            after = text[idx:].strip()
-            return after if after else True
-    except sr.RequestError:
-        log_command("Wake word: network error")
-    except sr.WaitTimeoutError:
-        pass
-    except:
-        pass
+    for attempt in range(2):
+        try:
+            with sr.Microphone() as src:
+                _recognizer.adjust_for_ambient_noise(src, duration=0.3)
+                audio = _recognizer.listen(src, timeout=3, phrase_time_limit=5)
+            text = _recognizer.recognize_google(audio)
+            if text and WAKE_WORD in text.lower():
+                idx = text.lower().index(WAKE_WORD) + len(WAKE_WORD)
+                after = text[idx:].strip()
+                return after if after else True
+        except sr.RequestError:
+            log_command(f"Wake word: network error (attempt {attempt+1})")
+            time.sleep(0.5)
+        except sr.WaitTimeoutError:
+            pass
+        except:
+            pass
     return False
 
 def capture_screen_b64():
@@ -243,18 +261,20 @@ def capture_screen_b64():
 def listen_for_cmd(gui, timeout=3):
     with SPEAK_LOCK:
         pass
-    try:
-        with sr.Microphone() as src:
-            _recognizer.adjust_for_ambient_noise(src, duration=0.3)
-            audio = _recognizer.listen(src, timeout=timeout, phrase_time_limit=8)
-        text = _recognizer.recognize_google(audio)
-        if text:
-            return text.lower()
-        return None
-    except sr.RequestError:
-        log_command("Speech recognition: network error")
-        return None
-    except sr.WaitTimeoutError:
-        return None
-    except:
-        return None
+    for attempt in range(2):
+        try:
+            with sr.Microphone() as src:
+                _recognizer.adjust_for_ambient_noise(src, duration=0.3)
+                audio = _recognizer.listen(src, timeout=timeout, phrase_time_limit=10)
+            text = _recognizer.recognize_google(audio)
+            if text:
+                return text.lower()
+            return None
+        except sr.RequestError:
+            log_command(f"Speech recognition: network error (attempt {attempt+1})")
+            time.sleep(0.5)
+        except sr.WaitTimeoutError:
+            return None
+        except:
+            return None
+    return None

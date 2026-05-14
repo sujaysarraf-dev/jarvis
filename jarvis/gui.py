@@ -477,10 +477,10 @@ def main_loop(gui):
                 gui.awake = True
                 gui.set_status("wake")
 
-                cmd = _listen_with_oww_pause(gui, timeout=2)
+                cmd = _listen_with_oww_pause(gui, timeout=3)
                 if not cmd:
                     speak("I'm listening", gui)
-                    cmd = _listen_with_oww_pause(gui, timeout=6)
+                    cmd = _listen_with_oww_pause(gui, timeout=8)
 
                 if cmd:
                     from jarvis.commands import handle_cmd
@@ -491,9 +491,8 @@ def main_loop(gui):
                 if not _always_on:
                     _idle_counter += 1
                     if is_oww_available() and not speech_mod._oww_thread_alive:
-                        log_command("OWW listener dead, restarting...")
                         start_oww_listener()
-                    if not is_oww_available() or _idle_counter > 50:
+                    if not is_oww_available() or _idle_counter > 30:
                         _idle_counter = 0
                         result = listen_for_wake()
                         if result:
@@ -503,7 +502,7 @@ def main_loop(gui):
                                 handle_cmd(result, gui)
                 time.sleep(0.1)
             else:
-                cmd = _listen_with_oww_pause(gui, timeout=3)
+                cmd = _listen_with_oww_pause(gui, timeout=4)
                 if cmd:
                     from jarvis.commands import handle_cmd
                     handle_cmd(cmd, gui)
