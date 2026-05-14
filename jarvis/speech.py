@@ -240,14 +240,13 @@ def capture_screen_b64():
         log_command(f"Screenshot capture failed: {e}")
         return None
 
-def listen_for_cmd(gui, timeout=2):
-    # Wait for speech to finish if any
+def listen_for_cmd(gui, timeout=3):
     with SPEAK_LOCK:
         pass
     try:
         with sr.Microphone() as src:
             _recognizer.adjust_for_ambient_noise(src, duration=0.3)
-            audio = _recognizer.listen(src, timeout=timeout, phrase_time_limit=4)
+            audio = _recognizer.listen(src, timeout=timeout, phrase_time_limit=8)
         text = _recognizer.recognize_google(audio)
         if text:
             return text.lower()

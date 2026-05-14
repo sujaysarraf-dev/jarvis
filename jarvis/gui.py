@@ -372,10 +372,10 @@ def main_loop(gui):
                 gui.awake = True
                 gui.set_status("wake")
                 
-                cmd = _listen_with_oww_pause(gui, timeout=1)
+                cmd = _listen_with_oww_pause(gui, timeout=2)
                 if not cmd:
                     speak("I'm listening", gui)
-                    cmd = _listen_with_oww_pause(gui, timeout=4)
+                    cmd = _listen_with_oww_pause(gui, timeout=6)
                 
                 if cmd:
                     from jarvis.commands import handle_cmd
