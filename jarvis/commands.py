@@ -53,6 +53,14 @@ def handle_cmd(cmd, gui):
     cmd = cmd.lower().strip()
     if not cmd:
         return
+    # Strip wake word if present (e.g. "jarvis open calc" -> "open calc")
+    for w in ["jarvis", "hey jarvis", "hey jar"]:
+        if cmd.startswith(w):
+            cmd = cmd[len(w):].strip()
+        elif cmd.endswith(w):
+            cmd = cmd[:-len(w)].strip()
+        if not cmd:
+            return
 
     echo_phrases = ["i am listen", "i am listening", "listening", "i'm listening", "system ready", "i am awake"]
     if cmd in echo_phrases:
