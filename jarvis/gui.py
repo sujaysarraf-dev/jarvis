@@ -448,6 +448,14 @@ def run_background_listener():
         except Exception as e: log_command(f"BG Mic error: {e}")
         finally: p.terminate()
 
+def _setup_hotkey(gui):
+    try:
+        import keyboard as kb
+        kb.add_hotkey("ctrl+shift+j", lambda: gui.root.after(0, gui.show_gui_from_bg))
+        log_command("Hotkey Ctrl+Shift+J registered")
+    except Exception as e:
+        log_command(f"Hotkey failed: {e}")
+
 def main():
     import socket
     lock_port = 49152
@@ -490,6 +498,7 @@ def main():
 
     os.makedirs(SS_FOLDER, exist_ok=True)
     gui = JarvisGUI()
+    _setup_hotkey(gui)
     gui.set_startup(True)
     gui.set_registry_startup(True)
     threading.Thread(target=main_loop, args=(gui,), daemon=True).start()
