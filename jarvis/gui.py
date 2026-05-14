@@ -54,22 +54,23 @@ class JarvisGUI:
         self.canvas.pack()
 
         # Create layers for the "Arc Reactor" look
-        self.outer_ring = self.canvas.create_oval(10, 10, self.size-10, self.size-10, outline=self.idle_color, width=2)
-        self.inner_ring = self.canvas.create_oval(25, 25, self.size-25, self.size-25, outline=self.idle_color, width=1)
+        self.outer_glow = self.canvas.create_oval(5, 5, self.size-5, self.size-5, outline=self.idle_color, width=1, dash=(2, 4))
+        self.outer_ring = self.canvas.create_oval(10, 10, self.size-10, self.size-10, outline=self.idle_color, width=3)
+        self.inner_ring = self.canvas.create_oval(25, 25, self.size-25, self.size-25, outline=self.idle_color, width=2)
         
         # Decorative dashes for rotation
         self.dashes = []
-        for i in range(8):
-            dash = self.canvas.create_line(0, 0, 0, 0, fill=self.idle_color, width=3)
+        for i in range(12):
+            dash = self.canvas.create_line(0, 0, 0, 0, fill=self.accent_color, width=2)
             self.dashes.append(dash)
         
-        self.core = self.canvas.create_oval(35, 35, self.size-35, self.size-35, fill="#111111", outline=self.idle_color, width=2)
-        self.status_dot = self.canvas.create_oval(self.size//2-5, self.size//2-5, self.size//2+5, self.size//2+5, fill=self.idle_color, outline="")
+        self.core = self.canvas.create_oval(35, 35, self.size-35, self.size-35, fill="#0a0a0a", outline=self.active_color, width=2)
+        self.status_dot = self.canvas.create_oval(self.size//2-6, self.size//2-6, self.size//2+6, self.size//2+6, fill=self.idle_color, outline="")
         
-        # Event Bindings
-        self.canvas.tag_bind(self.outer_ring, "<ButtonPress-1>", self.start_drag)
-        self.canvas.tag_bind(self.outer_ring, "<B1-Motion>", self.do_drag)
-        self.canvas.tag_bind(self.outer_ring, "<ButtonRelease-1>", self.stop_drag)
+        # Interaction tags
+        self.canvas.tag_bind("all", "<ButtonPress-1>", self.start_drag)
+        self.canvas.tag_bind("all", "<B1-Motion>", self.do_drag)
+        self.canvas.tag_bind("all", "<ButtonRelease-1>", self.stop_drag)
         self.canvas.tag_bind(self.core, "<Double-Button-1>", self.toggle_window)
         self.canvas.tag_bind(self.core, "<Button-3>", self.show_context_menu)
         
@@ -210,6 +211,7 @@ class JarvisGUI:
         }
         color = colors.get(status, self.idle_color)
         
+        self.canvas.itemconfig(self.outer_glow, outline=color)
         self.canvas.itemconfig(self.outer_ring, outline=color)
         self.canvas.itemconfig(self.inner_ring, outline=color)
         self.canvas.itemconfig(self.core, outline=color)
@@ -241,17 +243,19 @@ class JarvisGUI:
 
         # Pulse effect when active
         if self.last_status in ("processing", "listening", "speaking", "wake"):
-            self.pulse_phase = (self.pulse_phase + 0.1) % (math.pi * 2)
-            glow_offset = math.sin(self.pulse_phase) * 3
+            self.pulse_phase = (self.pulse_phase + 0.15) % (math.pi * 2)
+            glow_offset = math.sin(self.pulse_phase) * 4
             self.canvas.coords(self.inner_ring, 25-glow_offset, 25-glow_offset, self.size-25+glow_offset, self.size-25+glow_offset)
+            self.canvas.coords(self.outer_glow, 5-glow_offset/2, 5-glow_offset/2, self.size-5+glow_offset/2, self.size-5+glow_offset/2)
             
             if self.last_status == "speaking":
-                self.canvas.itemconfig(self.outer_ring, width=3 + math.sin(self.pulse_phase)*1)
+                self.canvas.itemconfig(self.outer_ring, width=4 + math.sin(self.pulse_phase)*2)
             else:
-                self.canvas.itemconfig(self.outer_ring, width=2)
+                self.canvas.itemconfig(self.outer_ring, width=3)
         else:
-            self.canvas.itemconfig(self.outer_ring, width=2)
+            self.canvas.itemconfig(self.outer_ring, width=3)
             self.canvas.coords(self.inner_ring, 25, 25, self.size-25, self.size-25)
+            self.canvas.coords(self.outer_glow, 5, 5, self.size-5, self.size-5)
 
         self.root.after(30, self.update_animation)
 
@@ -305,6 +309,19 @@ class JarvisGUI:
 
     def show_context_menu(self, event):
         self.context_menu.tk_popup(event.x_root, event.y_root)
+
+    def set_startup(self, enable):
+        """Creates a startup .bat file to launch the background listener."""
+        try:
+            if enable:
+                script_path = os.path.abspath(os.path.join(BASE_DIR, "main.py"))
+                pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+                with open(STARTUP_FILE, "w") as f:
+                    f.write(f'@echo off\nstart "" "{pythonw}" "{script_path}" --listener\n')
+            elif os.path.exists(STARTUP_FILE):
+                os.remove(STARTUP_FILE)
+        except Exception as e:
+            log_command(f"Startup creation failed: {e}")
 
     def set_registry_startup(self, enable):
         import winreg
@@ -436,24 +453,32 @@ def main():
         except: pass
         sys.exit(0)
 
+    def socket_server_generic():
+        while True:
+            try:
+                conn, addr = lock_socket.accept()
+                with conn:
+                    data = conn.recv(1024)
+                    if b"SHOW" in data:
+                        if "--listener" in sys.argv:
+                            # If we are the listener, launch the GUI
+                            pythonw = sys.executable.replace("python.exe", "pythonw.exe")
+                            subprocess.Popen([pythonw, os.path.abspath(os.path.join(BASE_DIR, "main.py"))])
+                        else:
+                            # If we are the GUI, show ourselves
+                            gui.root.after(0, gui.show_gui_from_bg)
+            except: time.sleep(1)
+    
+    threading.Thread(target=socket_server_generic, daemon=True).start()
+
     if "--listener" in sys.argv:
         run_background_listener()
         return
 
     os.makedirs(SS_FOLDER, exist_ok=True)
     gui = JarvisGUI()
+    gui.set_startup(True)
     gui.set_registry_startup(True)
-    
-    def socket_server():
-        while True:
-            try:
-                conn, addr = lock_socket.accept()
-                with conn:
-                    if b"SHOW" in conn.recv(1024):
-                        gui.root.after(0, gui.show_gui_from_bg)
-            except: time.sleep(1)
-    
-    threading.Thread(target=socket_server, daemon=True).start()
     threading.Thread(target=main_loop, args=(gui,), daemon=True).start()
     
     if "--bg" in sys.argv:

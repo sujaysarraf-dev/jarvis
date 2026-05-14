@@ -111,7 +111,7 @@ def handle_cmd(cmd, gui):
         d = datetime.datetime.now().strftime("%A, %B %d, %Y")
         speak(f"Today is {d}", gui)
         return
-    if re.search(r"\b(?:bye\s+jarvis|bye\s+jar|exit\s+jarvis|goodbye|goodbye\s+jarvis|close\s+jarvis)\b", cmd):
+    if re.search(r"\b(?:bye\s+jarvis|bye\s+jar|exit\s+jarvis|goodbye|goodbye\s+jarvis|close\s+jarvis|shutdown)\b", cmd):
         speak("Always a pleasure. Shutting down systems now.", gui)
         gui.close()
         return
@@ -348,7 +348,7 @@ def handle_cmd(cmd, gui):
         speak(facts, gui)
         return
 
-    forget_match = re.search(r"(?:forget|delete|remove)\s+(.+)", cmd)
+    forget_match = re.search(r"(?:forget|delete fact|remove fact)\s+(.+)", cmd)
     if forget_match:
         if memory.remove(forget_match.group(1)):
             speak("Forgotten", gui)
