@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="pygame")
 
 try:
     import pygame
+    pygame.mixer.init(frequency=22050, size=-16, channels=1)
     _HAVE_PYGAME = True
 except:
     _HAVE_PYGAME = False
@@ -74,9 +75,9 @@ def speak(text, gui, add_transcript=True):
         
         if _HAVE_GTTS and _HAVE_PYGAME:
             try:
-                pygame.mixer.init()
                 tts = gTTS(text=text, lang="en", tld="com", slow=False)
                 tts.save(speech_file)
+                pygame.mixer.music.set_volume(1.0)
                 pygame.mixer.music.load(speech_file)
                 pygame.mixer.music.play()
                 while pygame.mixer.music.get_busy():
