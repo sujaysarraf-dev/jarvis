@@ -66,11 +66,14 @@ def speak(text, gui, add_transcript=True):
         pause_oww()
         
         with SPEAK_LOCK:
-            gui.last_spoken = text[:200]
-            if add_transcript:
-                gui.add_transcript("Jarvis", text)
-            
-            gui.set_status("speaking", text[:100])
+            try:
+                gui.last_spoken = text[:200]
+                if add_transcript:
+                    gui.add_transcript("Jarvis", text)
+                gui.set_status("speaking", text[:100])
+            except AttributeError:
+                pass
+
             speech_file = os.path.join(BASE_DIR, f"jarvis_speech_{int(time.time())}.mp3")
             spoken = False
             
@@ -131,10 +134,10 @@ def speak(text, gui, add_transcript=True):
             INTERRUPT_EVENT.clear()
             time.sleep(0.4)
             WAKE_EVENT.clear()
-        
-        time.sleep(0.4)
-        WAKE_EVENT.clear()
-        resume_oww()
+    
+    time.sleep(0.4)
+    WAKE_EVENT.clear()
+    resume_oww()
 
 def is_oww_available():
     return _HAVE_OWW
