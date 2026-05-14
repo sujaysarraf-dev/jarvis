@@ -60,27 +60,15 @@ class JarvisGUI:
 
         self.outer_glow = self.canvas.create_oval(3, 3, S-3, S-3, outline=self.idle_color, width=2, dash=(2, 6))
         self.outer_ring = self.canvas.create_oval(8, 8, S-8, S-8, outline=self.idle_color, width=4)
-        self.mid_ring = self.canvas.create_oval(22, 22, S-22, S-22, outline=self.idle_color, width=2, dash=(3, 6))
         self.inner_ring = self.canvas.create_oval(40, 40, S-40, S-40, outline=self.idle_color, width=3)
         self.core_glow = self.canvas.create_oval(50, 50, S-50, S-50, fill="#0d1520", outline=self.active_color, width=2)
-
         self.core = self.canvas.create_oval(58, 58, S-58, S-58, fill="#0a0a0a", outline="")
         self.status_dot = self.canvas.create_oval(cx-5, cy-5, cx+5, cy+5, fill=self.idle_color, outline="")
 
         self.dashes = []
-        for i in range(12):
+        for i in range(10):
             d = self.canvas.create_line(0, 0, 0, 0, fill=self.active_color, width=2)
             self.dashes.append(d)
-
-        self.particles = []
-        for i in range(8):
-            p = self.canvas.create_oval(0, 0, 0, 0, fill=self.active_color, outline="")
-            self.particles.append(p)
-
-        self.wave_rings_canvas = []
-        for _ in range(3):
-            w = self.canvas.create_oval(cx, cy, cx, cy, outline=self.speaking_color, width=1, dash=(1, 4))
-            self.wave_rings_canvas.append(w)
 
         self.canvas.tag_bind("all", "<ButtonPress-1>", self.start_drag)
         self.canvas.tag_bind("all", "<B1-Motion>", self.do_drag)
@@ -96,7 +84,7 @@ class JarvisGUI:
         self.context_menu.add_command(label=" Hide ", command=self.hide)
         self.context_menu.add_command(label=" Shutdown ", command=self.close)
 
-        self.root.after(16, self.update_animation)
+        self.root.after(60, self.update_animation)
 
     def start_drag(self, event):
         self.dragging = True
@@ -253,14 +241,11 @@ class JarvisGUI:
 
         self.canvas.itemconfig(self.outer_glow, outline=color)
         self.canvas.itemconfig(self.outer_ring, outline=color)
-        self.canvas.itemconfig(self.mid_ring, outline=color)
         self.canvas.itemconfig(self.inner_ring, outline=color)
         self.canvas.itemconfig(self.core_glow, outline=color)
         self.canvas.itemconfig(self.status_dot, fill=color)
         for d in self.dashes:
             self.canvas.itemconfig(d, fill=color)
-        for p in self.particles:
-            self.canvas.itemconfig(p, fill=color)
 
         if self.info_win and self.info_win.winfo_exists():
             labels = {"idle": "STANDBY", "wake": "ACTIVE", "listening": "LISTENING",
@@ -270,75 +255,37 @@ class JarvisGUI:
 
     def update_animation(self):
         cx, cy, S = self.size // 2, self.size // 2, self.size
-        self.rotation_angle = (self.rotation_angle + 2) % 360
+        self.rotation_angle = (self.rotation_angle + 1.5) % 360
         rad = math.radians(self.rotation_angle)
 
         status = self.last_status
-        speed = {"idle": 0.5, "wake": 2.0, "listening": 2.5,
-                "processing": 3.0, "speaking": 1.5, "looking": 2.0}.get(status, 1.0)
+        speed = {"idle": 0.3, "wake": 1.5, "listening": 2.0,
+                "processing": 2.5, "speaking": 1.0, "looking": 1.5}.get(status, 1.0)
 
+        r_out = S // 2 - 10
+        r_in = S // 2 - 17
         n = len(self.dashes)
         step = math.pi * 2 / n
         base = rad * speed
-        r_out = S // 2 - 10
-        r_in = S // 2 - 18
         for i, dash in enumerate(self.dashes):
             a = base + i * step
-            x1 = cx + math.cos(a) * r_in
-            y1 = cy + math.sin(a) * r_in
-            x2 = cx + math.cos(a) * r_out
-            y2 = cy + math.sin(a) * r_out
-            self.canvas.coords(dash, x1, y1, x2, y2)
+            self.canvas.coords(dash, cx + math.cos(a) * r_in, cy + math.sin(a) * r_in,
+                               cx + math.cos(a) * r_out, cy + math.sin(a) * r_out)
 
-        pulse_rate = {"idle": 0.04, "wake": 0.12, "listening": 0.15,
-                     "processing": 0.2, "speaking": 0.1, "looking": 0.12}.get(status, 0.06)
+        pulse_rate = {"idle": 0.03, "wake": 0.1, "listening": 0.12,
+                     "processing": 0.15, "speaking": 0.08, "looking": 0.1}.get(status, 0.05)
         self.pulse_phase = (self.pulse_phase + pulse_rate) % (math.pi * 2)
         pulse = math.sin(self.pulse_phase) * 0.5 + 0.5
 
-        is_active = status != "idle"
-
-        if is_active:
-            go = pulse * 5
+        if status != "idle":
+            go = pulse * 4
             self.canvas.coords(self.outer_glow, 3 - go/3, 3 - go/3, S - 3 + go/3, S - 3 + go/3)
             self.canvas.coords(self.inner_ring, 40 - go, 40 - go, S - 40 + go, S - 40 + go)
-            w = int(4 + pulse * 4) if status == "speaking" else int(3 + pulse * (2 if status == "processing" else 1))
-            self.canvas.itemconfig(self.outer_ring, width=max(2, w))
         else:
             self.canvas.coords(self.outer_glow, 3, 3, S-3, S-3)
             self.canvas.coords(self.inner_ring, 40, 40, S-40, S-40)
-            self.canvas.itemconfig(self.outer_ring, width=3)
 
-        if is_active:
-            po = S // 2 - 13
-            for i, p in enumerate(self.particles):
-                self._particle_angles[i] = (self._particle_angles[i] + (0.03 + i * 0.005) * speed) % (math.pi * 2)
-                pa = self._particle_angles[i]
-                px = cx + math.cos(pa) * (po + pulse * (2 if i % 2 == 0 else -2))
-                py = cy + math.sin(pa) * (po + pulse * (2 if i % 2 == 0 else -2))
-                ps = 2 + pulse * (1.5 if i % 2 == 0 else 0.5)
-                self.canvas.coords(p, px - ps, py - ps, px + ps, py + ps)
-        else:
-            for p in self.particles:
-                self.canvas.coords(p, 0, 0, 0, 0)
-
-        if status == "speaking":
-            self._wave_phase = (self._wave_phase + 0.08) % (math.pi * 2)
-            for i, w in enumerate(self.wave_rings_canvas):
-                wp = (self._wave_phase + i * 2.094) % (math.pi * 2)
-                ws = 5 + wp * 18
-                a = max(0, 1.0 - wp / 6.283)
-                ar = int(10 + (0 - 10) * a)
-                ag = int(10 + (136 - 10) * a)
-                ab = int(10 + (255 - 10) * a)
-                wc = f"#{ar:02x}{ag:02x}{ab:02x}"
-                self.canvas.coords(w, cx - ws, cy - ws, cx + ws, cy + ws)
-                self.canvas.itemconfig(w, outline=wc, width=max(1, int(a * 3)))
-                self.canvas.tag_raise(w, self.core_glow)
-        else:
-            for w in self.wave_rings_canvas:
-                self.canvas.coords(w, cx, cy, cx, cy)
-
-        self.root.after(33, self.update_animation)
+        self.root.after(60, self.update_animation)
 
     def _refresh_transcript(self):
         if hasattr(self, 'transcript_box') and self.info_win and self.info_win.winfo_exists():
@@ -365,8 +312,10 @@ class JarvisGUI:
     def close(self):
         log_command("Jarvis shutting down")
         self.running = False
-        self.root.destroy()
-        sys.exit(0)
+        try:
+            self.root.destroy()
+        except:
+            pass
 
     def show_context_menu(self, event):
         self.context_menu.tk_popup(event.x_root, event.y_root)
@@ -461,8 +410,9 @@ def main_loop(gui):
                     from jarvis.commands import handle_cmd
                     handle_cmd(cmd, gui)
                     gui.set_status("listening")
-        except Exception as e:
-            log_command(f"Main loop crash: {e}")
+        except BaseException as e:
+            if not isinstance(e, SystemExit):
+                log_command(f"Main loop crash: {e}")
             time.sleep(2)
 
 
