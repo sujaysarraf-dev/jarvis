@@ -412,6 +412,7 @@ def _listen_with_oww_pause(gui, timeout=2):
     return cmd
 
 _always_on = False
+_idle_counter = 0
 
 def main_loop(gui):
     global _idle_counter, _always_on
