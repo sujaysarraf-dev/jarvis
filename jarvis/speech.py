@@ -85,11 +85,22 @@ def speak(text, gui, add_transcript=True):
             else:
                 speech_file = None
 
-        if speech_file and os.path.exists(speech_file) and _HAVE_PYGAME:
+        if speech_file and os.path.exists(speech_file):
             try:
-                pygame.mixer.quit()
+                import ctypes
+                res = ctypes.windll.winmm.mciSendStringW(f'open "{speech_file}" alias speech', None, 0, 0)
+                if res == 0:
+                    ctypes.windll.winmm.mciSendStringW('play speech wait', None, 0, 0)
+                    ctypes.windll.winmm.mciSendStringW('close speech', None, 0, 0)
+                    spoken = True
+                else:
+                    log_command(f"MCI open failed: {res}")
+            except Exception as e:
+                log_command(f"MCI playback failed: {e}")
+
+        if not spoken and speech_file and os.path.exists(speech_file) and _HAVE_PYGAME:
+            try:
                 pygame.mixer.init()
-                pygame.mixer.music.set_volume(1.0)
                 pygame.mixer.music.load(speech_file)
                 pygame.mixer.music.play()
                 while pygame.mixer.music.get_busy():
@@ -101,17 +112,7 @@ def speak(text, gui, add_transcript=True):
                 pygame.mixer.music.unload()
                 spoken = True
             except Exception as e:
-                log_command(f"pygame playback failed: {e}")
-
-        if not spoken and speech_file and os.path.exists(speech_file):
-            try:
-                import ctypes
-                ctypes.windll.winmm.mciSendStringW(f'open "{speech_file}" type mpegvideo alias speech', None, 0, 0)
-                ctypes.windll.winmm.mciSendStringW('play speech wait', None, 0, 0)
-                ctypes.windll.winmm.mciSendStringW('close speech', None, 0, 0)
-                spoken = True
-            except Exception as e:
-                log_command(f"winmm playback failed: {e}")
+                log_command(f"pygame failed: {e}")
         
         if speech_file and os.path.exists(speech_file):
             try: os.remove(speech_file)
