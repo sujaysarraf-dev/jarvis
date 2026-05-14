@@ -83,19 +83,25 @@ def handle_cmd(cmd, gui):
     cmd = cmd.lower().strip()
     if not cmd:
         return
-    gui.add_transcript("You", cmd)
-    gui.set_status("processing", f"You said: {cmd}")
-    log_command(cmd)
     
-    # Echo filter: ignore phrases that sound like Jarvis's own feedback
-    if cmd in ["i am listen", "i am listening", "listening", "i'm listening"]:
+    # Broad Echo Filter: ignore phrases that sound like Jarvis's own feedback
+    echo_phrases = ["i am listen", "i am listening", "listening", "i'm listening", "system ready", "i am awake"]
+    if cmd in echo_phrases:
+        log_command(f"Echo filter: exact match for [{cmd}]")
         return
 
-    if gui.last_spoken and len(cmd) > 5:
-        ratio = fuzz.ratio(cmd, gui.last_spoken[:80].lower())
-        if ratio > 70:
-            log_command(f"Echo guard: skipped (fuzz={ratio:.0f}%): [{cmd}] vs [{gui.last_spoken[:80]}]")
+    if gui.last_spoken:
+        # Check if what we heard is just what we said
+        # SAPI and gTTS sometimes sound different to the recognizer
+        ratio = fuzz.partial_ratio(cmd, gui.last_spoken.lower())
+        if ratio > 80:
+            log_command(f"Echo guard: skipped (fuzz={ratio:.0f}%): [{cmd}] vs [{gui.last_spoken[:50]}]")
             return
+
+    # Log and display once we're sure it's not an echo
+    gui.add_transcript("You", cmd)
+    gui.set_status("processing", f"Accepted: {cmd}")
+    log_command(cmd)
 
     if "time" in cmd:
         t = datetime.datetime.now().strftime("%I:%M %p")

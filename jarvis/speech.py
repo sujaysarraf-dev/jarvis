@@ -106,11 +106,12 @@ def speak(text, gui, add_transcript=True):
             
         INTERRUPT_EVENT.clear()
         
-        # Don't immediately switch back to listening if we're in the middle of a command flow
-        # The main_loop will handle the transition back to listening or idle
+        # Ensure we don't pick up our own tail end of speech
+        time.sleep(0.4)
+        WAKE_EVENT.clear()
     
-    # Wait a moment for audio to settle
-    time.sleep(0.3)
+    # Extra buffer for the microphone to settle
+    time.sleep(0.4)
     WAKE_EVENT.clear()
     resume_oww()
 
