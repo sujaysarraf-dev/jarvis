@@ -56,14 +56,17 @@ def _try_fetch(model, messages, max_tokens, temperature, timeout, gui, silent=Fa
         ps_cmd = ps_match.group(1).strip()
         from jarvis.config import FORBIDDEN_PS
         if ps_cmd and not FORBIDDEN_PS.search(ps_cmd):
-            _run_ps(ps_cmd)
-            # Remove the PS block from the spoken response
+            ok, result = _run_ps(ps_cmd)
             clean_msg = ps_pattern.sub('', full).strip()
             if not silent:
-                if clean_msg:
-                    speak(clean_msg, gui)
+                if ok:
+                    if clean_msg:
+                        speak(clean_msg, gui)
+                    else:
+                        speak("Done.", gui)
                 else:
-                    speak("Executing command.", gui)
+                    log_command(f"PS command failed: {result}")
+                    speak(f"Command failed: {result}", gui)
             return full, None
 
     if full and not silent:
@@ -183,10 +186,10 @@ def gen_llm(cmd, gui):
             "- Volume down: (New-Object -ComObject WScript.Shell).SendKeys([char]174)\n"
             "- Volume mute: (New-Object -ComObject WScript.Shell).SendKeys([char]173)\n"
             "- Brightness up/down: (Get-WmiObject -Namespace root/WMI -Class WmiMonitorBrightnessMethods).WmiSetBrightness(1,<0-100>)\n"
-            "- WiFi on: Enable-NetAdapter -Name \"Wi-Fi\"\n"
-            "- WiFi off: Disable-NetAdapter -Name \"Wi-Fi\"\n"
-            "- Bluetooth on: Enable-PnpDevice -InstanceId (Get-PnpDevice -Class Bluetooth).InstanceId\n"
-            "- Bluetooth off: Disable-PnpDevice -InstanceId (Get-PnpDevice -Class Bluetooth).InstanceId\n"
+            "- WiFi on: netsh interface set interface \"Wi-Fi\" admin=enabled\n"
+            "- WiFi off: netsh interface set interface \"Wi-Fi\" admin=disabled\n"
+            "- Bluetooth on: Get-PnpDevice -Class Bluetooth | Enable-PnpDevice -Confirm:$false\n"
+            "- Bluetooth off: Get-PnpDevice -Class Bluetooth | Disable-PnpDevice -Confirm:$false\n"
             "- Dark mode: New-ItemProperty -Path HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize -Name AppsUseLightTheme -Value 0 -Force\n"
             "- Light mode: New-ItemProperty -Path HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize -Name AppsUseLightTheme -Value 1 -Force\n"
             "- Screenshot: Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{PRTSC}')\n"

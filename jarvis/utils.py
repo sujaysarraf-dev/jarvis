@@ -60,8 +60,22 @@ def log_command(cmd, status="executed"):
         pass
 
 def _run_ps(ps_cmd):
-    subprocess.Popen(['powershell', '-NoProfile', '-Command', ps_cmd],
-                     shell=False, creationflags=CREATE_NO_WINDOW)
+    try:
+        r = subprocess.run(['powershell', '-NoProfile', '-Command', ps_cmd],
+                          shell=False, creationflags=CREATE_NO_WINDOW,
+                          capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            err = r.stderr.strip()[:200] if r.stderr.strip() else f"exit code {r.returncode}"
+            log_command(f"PS fail: {err} | cmd: {ps_cmd[:100]}")
+            return False, err
+        out = r.stdout.strip()[:200] if r.stdout.strip() else ""
+        return True, out
+    except subprocess.TimeoutExpired:
+        log_command(f"PS timeout: {ps_cmd[:100]}")
+        return False, "timeout"
+    except Exception as e:
+        log_command(f"PS error: {e} | cmd: {ps_cmd[:100]}")
+        return False, str(e)[:100]
 
 def _is_useless_response(text):
     stripped = re.sub(r'[^\w\s]', '', text).strip().lower()
