@@ -73,10 +73,22 @@ def speak(text, gui, add_transcript=True):
         speech_file = os.path.join(BASE_DIR, f"jarvis_speech_{int(time.time())}.mp3")
         spoken = False
         
-        if _HAVE_GTTS and _HAVE_PYGAME:
+        if _HAVE_GTTS:
+            for attempt in range(3):
+                try:
+                    tts = gTTS(text=text, lang="en", tld="com", slow=False)
+                    tts.save(speech_file)
+                    break
+                except Exception as e:
+                    log_command(f"gTTS attempt {attempt+1} failed: {e}")
+                    time.sleep(0.5)
+            else:
+                speech_file = None
+
+        if speech_file and os.path.exists(speech_file) and _HAVE_PYGAME:
             try:
-                tts = gTTS(text=text, lang="en", tld="com", slow=False)
-                tts.save(speech_file)
+                pygame.mixer.quit()
+                pygame.mixer.init()
                 pygame.mixer.music.set_volume(1.0)
                 pygame.mixer.music.load(speech_file)
                 pygame.mixer.music.play()
@@ -89,11 +101,21 @@ def speak(text, gui, add_transcript=True):
                 pygame.mixer.music.unload()
                 spoken = True
             except Exception as e:
-                log_command(f"gTTS failed: {e}")
-            finally:
-                if os.path.exists(speech_file):
-                    try: os.remove(speech_file)
-                    except: pass
+                log_command(f"pygame playback failed: {e}")
+
+        if not spoken and speech_file and os.path.exists(speech_file):
+            try:
+                import ctypes
+                ctypes.windll.winmm.mciSendStringW(f'open "{speech_file}" type mpegvideo alias speech', None, 0, 0)
+                ctypes.windll.winmm.mciSendStringW('play speech wait', None, 0, 0)
+                ctypes.windll.winmm.mciSendStringW('close speech', None, 0, 0)
+                spoken = True
+            except Exception as e:
+                log_command(f"winmm playback failed: {e}")
+        
+        if speech_file and os.path.exists(speech_file):
+            try: os.remove(speech_file)
+            except: pass
         
         if not spoken and not INTERRUPT_EVENT.is_set():
             try:
