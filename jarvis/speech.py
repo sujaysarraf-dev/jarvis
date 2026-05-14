@@ -203,6 +203,17 @@ def listen_for_wake():
         pass
     return False
 
+def capture_screen_b64():
+    try:
+        import PIL.ImageGrab, io, base64
+        img = PIL.ImageGrab.grab()
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception as e:
+        log_command(f"Screenshot capture failed: {e}")
+        return None
+
 def listen_for_cmd(gui, timeout=2):
     # Wait for speech to finish if any
     with SPEAK_LOCK:

@@ -1,13 +1,16 @@
 import re
 import time
+import base64
+import io
 import threading
 import requests
 from jarvis.config import (
     ACTIVE_API_URL, ACTIVE_API_KEY, ACTIVE_MODEL,
-    OPENROUTER_TIMEOUT, OPENROUTER_FALLBACK_MODELS
+    OPENROUTER_TIMEOUT, OPENROUTER_FALLBACK_MODELS,
+    VISION_MODEL, VISION_URL, VISION_TIMEOUT
 )
 from jarvis.memory import memory
-from jarvis.speech import speak
+from jarvis.speech import speak, capture_screen_b64
 from jarvis.utils import log_command, _run_ps
 
 _last_working_model = None
@@ -251,3 +254,53 @@ def gen_llm(cmd, gui):
     except Exception as e:
         log_command(f"LLM Error: {str(e)}")
         threading.Thread(target=speak, args=("I encountered an error connecting to my brain.", gui), daemon=True).start()
+
+def ask_vision(cmd, gui):
+    if not ACTIVE_API_KEY:
+        speak("Please set your API key in the .env file.", gui)
+        return
+    try:
+        gui.set_status("looking")
+        speak("Looking at your screen.", gui)
+
+        b64 = capture_screen_b64()
+        if not b64:
+            speak("I couldn't capture the screen.", gui)
+            return
+
+        gui.set_status("processing", "Analyzing screen...")
+        messages = [
+            {"role": "system", "content": "You are JARVIS, a screen vision assistant. The user has shared their screen. Answer their question about what's on screen concisely in 1-2 sentences."},
+            {"role": "user", "content": [
+                {"type": "text", "text": cmd},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+            ]}
+        ]
+
+        resp = requests.post(VISION_URL, json={
+            "model": VISION_MODEL, "messages": messages,
+            "max_tokens": 200, "temperature": 0.1, "stream": False,
+        }, headers={
+            "Authorization": f"Bearer {ACTIVE_API_KEY}",
+            "Content-Type": "application/json"
+        }, timeout=VISION_TIMEOUT)
+
+        if resp.status_code != 200:
+            speak("I had trouble analyzing the screen.", gui)
+            log_command(f"Vision API error: HTTP {resp.status_code}")
+            return
+
+        data = resp.json()
+        answer = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not answer:
+            speak("I couldn't see anything clearly.", gui)
+            return
+
+        sentences = re.split(r'(?<=[.!?])\s+', answer)
+        for s in sentences:
+            s = s.strip()
+            if s:
+                speak(s, gui, add_transcript=False)
+    except Exception as e:
+        log_command(f"Vision error: {str(e)}")
+        speak("I encountered an error looking at your screen.", gui)

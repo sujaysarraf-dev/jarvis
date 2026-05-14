@@ -1,6 +1,7 @@
 import re
 import threading
 from rapidfuzz import fuzz
+from jarvis.config import VISION_PATTERNS
 from jarvis.memory import memory
 from jarvis.speech import speak
 from jarvis.utils import log_command
@@ -64,6 +65,11 @@ def handle_cmd(cmd, gui):
     if "clear my memory" in cmd or "reset memory" in cmd or "wipe memory" in cmd:
         memory.clear()
         speak("Memory cleared", gui)
+        return
+
+    if VISION_PATTERNS.search(cmd):
+        from jarvis.llm import ask_vision
+        threading.Thread(target=ask_vision, args=(cmd, gui), daemon=True).start()
         return
 
     from jarvis.llm import gen_llm

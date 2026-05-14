@@ -35,6 +35,18 @@ OPENROUTER_FALLBACK_MODELS = [
     "microsoft/phi-3-mini-128k-instruct:free",
 ]
 
+VISION_MODEL = "openrouter/free"
+VISION_URL = OPENROUTER_URL
+VISION_TIMEOUT = 30
+
+VISION_PATTERNS = re.compile(
+    r"(?:what.*on (?:my |the )?screen|look at|what do you see|"
+    r"read this|what is this|describe|what.*show|see this|"
+    r"what.*display|screen.?shot|recognize|identify|"
+    r"what.*(?:open|running|showing)|is that|can you see)",
+    re.I
+)
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SS_FOLDER = os.path.join(BASE_DIR, "ss")
 DATA_FOLDER = os.path.join(BASE_DIR, "data")

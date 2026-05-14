@@ -207,7 +207,8 @@ class JarvisGUI:
         colors = {
             "idle": self.idle_color, "wake": self.active_color, "listening": self.listening_color,
             "processing": self.processing_color, "speaking": self.speaking_color,
-            "success": self.listening_color, "error": self.error_color
+            "success": self.listening_color, "error": self.error_color,
+            "looking": "#00FFFF"
         }
         color = colors.get(status, self.idle_color)
         
@@ -221,7 +222,8 @@ class JarvisGUI:
             
         if self.info_win and self.info_win.winfo_exists():
             ti = {"idle": "SYSTEM STANDBY", "wake": "SYSTEM ACTIVE", "listening": "LISTENING...",
-                  "processing": "THINKING...", "speaking": "SPEAKING...", "success": "COMMAND COMPLETE", "error": "SYSTEM ERROR"}
+                  "processing": "THINKING...", "speaking": "SPEAKING...", "success": "COMMAND COMPLETE", "error": "SYSTEM ERROR",
+                  "looking": "SCANNING..."}
             self.status_label.config(text=ti.get(status, "SYSTEM READY"), fg=color)
 
     def update_animation(self):
